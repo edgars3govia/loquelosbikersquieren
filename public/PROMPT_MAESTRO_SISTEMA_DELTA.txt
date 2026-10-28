@@ -1,0 +1,94 @@
+# PROMPT MAESTRO DE RECREACIÓN: SISTEMA INTEGRAL FINANCIERO, INVENTARIO Y POS (FIREBASE + GOOGLE SHEETS + TASA BCV)
+
+Actúa como un Ingeniero de Software Full-Stack Senior especializado en React, TypeScript, Tailwind CSS y Firebase (Firestore y Authentication).
+Tu objetivo es construir desde cero una plataforma web integral de gestión empresarial y financiera bi-moneda (USD / Bs / RMB / EUR) optimizada para importación desde China (1688), inventario físico en tiempo real, punto de venta (POS) con flujo de caja, generador de guías de envío térmicas 2x4 (MRW / Zoom / Tealca), cotizador de pedidos de importación, sincronización bidireccional inteligente con Google Sheets y visión IA para generación de tags/palabras clave descriptivas.
+
+---
+
+### 1. ARQUITECTURA TÉCNICA Y PERSISTENCIA (FIREBASE FIRST)
+1. **Frontend**: React 18+ con TypeScript, Vite, Tailwind CSS y Lucide React para iconografía.
+2. **Base de Datos & Auth**: Firebase Firestore y Firebase Authentication (Google Auth + inicio anónimo con vinculación de credencial).
+   - Colecciones principales en Firestore:
+     - `productos`: Catálogo maestro de inventario (`id`, `sku`, `nombre`, `peso_g`, `precio_rmb`, `stock_disponible`, `costo_fob_usd`, `costo_landed_aereo`, `costo_landed_barco`, `costo_real_unitario`, `es_costo_real_confirmado`, `metodo_envio_ultimo_pedido`, `precio_venta_ref`, `precio_mayor`, `ml_precio_sugerido`, `link_1688`, `imagen_url`, `imagen_grupo`, `estilo`, `palabras_clave`, `categoria`, `notas`, `userId`, `createdAt`, `updatedAt`).
+     - `transacciones`: Flujo de caja y ventas (`id`, `tipo`: 'ingreso' | 'egreso', `categoria`, `monto_usd`, `monto_bs`, `tasa_bcv`, `cliente`, `cedula`, `telefono`, `agencia`, `productId`, `cantidad`, `userId`, `date`, `hasShippingGuide`).
+     - `pedidos_historial`: Historial de pedidos y cotizaciones de importación con desglose de ítems, peso total, flete real, costos landed consolidados y confirmación de recepción.
+     - `financial_settings`: Configuración de tasas y factores de importación persistidos por usuario en Firestore y localStorage.
+3. **PWA (Progressive Web App)**: Service Worker registrado, manifest.json para instalación directa en teléfonos móviles, modal de carga rápida de ventas/gastos desde la calle con sincronización offline/online.
+
+---
+
+### 2. MOTOR FINANCIERO Y TASA BCV EN VIVO
+1. **Integración BCV Dinámica (DolarAPI Venezuela)**:
+   - Conexión automática con la API oficial del Banco Central de Venezuela (`https://ve.dolarapi.com/v1/dolares/oficial`).
+   - Prohibido el uso de valores fijos o hardcodeados: actualiza la tasa al arrancar la app o manualmente mediante botón de refresco y persiste la última tasa conocida en localStorage y Firestore.
+2. **Panel de Variables Financieras Globales**:
+   - Tarifa aérea por gramo (ej. `$0.020 USD/g`).
+   - Factor de impuesto/aduana aérea (ej. `1.42`).
+   - Tasa Yuan a USD (ej. `7.00 RMB/USD` editable).
+   - Tasa BCV (Bs/USD) y Tasa Paralelo/Subasta.
+   - Factor de comisión marítima (ej. `1.07`).
+   - Tipo de flete nacional (AsiaVen / MRW / Ninguno).
+
+---
+
+### 3. CALCULADORA DE COSTOS DE IMPORTACIÓN (CHINA 1688) & SIMULADOR MERCADOLIBRE
+1. **Fórmulas Landed Exactas**:
+   - Costo FOB Unitario: `(precio_rmb / tasaYuanUSD)`.
+   - Flete Aéreo Base: `(peso_g * tarifaAereaGramo) * factorImpuestoAereo`.
+   - Costo Landed Aéreo: `FOB + Flete Aéreo`.
+   - Costo Landed Barco: `FOB * factorComisionBarco`.
+2. **Historial de Pedidos & "Costo Real Confirmado"**:
+   - Capacidad de armar pedidos por lote seleccionando productos del catálogo, indicando cantidades y modo de envío (Aéreo o Barco).
+   - Al recibir la carga en físico, permitir ingresar el costo real total pagado en flete/aduana y prorratearlo para sellar el flag `es_costo_real_confirmado = true` y fijar el costo real exacto del artículo.
+3. **Sugeridor de Precios MercadoLibre Venezuela**:
+   - Deducción automática de comisiones de MercadoLibre por tipo de publicación (Clásica, Premium), retenciones, costo de envío gratis asumido por el vendedor y margen neto deseado para calcular el precio de venta sugerido en USD y Bolívares.
+
+---
+
+### 4. INVENTARIO & CONTROL DE STOCK
+1. **Catálogo Completo**:
+   - Tabla interactiva con búsqueda en tiempo real, agrupamiento o filtro por categoría, y alertas visuales de stock bajo (<= 5 unidades) o agotado (0 unidades).
+   - Miniatura de imágenes con soporte para Google Drive (conversión automática de IDs a enlaces directos) y visor modal a pantalla completa.
+   - Enlace directo a la publicación de 1688 en un clic.
+   - Acciones rápidas: duplicar producto, registrar recepciones de mercancía (`+ Stock`) y edición de datos físicos.
+2. **Importación Masiva (Excel / CSV)**:
+   - Procesador inteligente capaz de leer archivos `.xlsx` y `.csv` con mapeo flexible de nombres de columna (detecta automáticamente "producto", "nombre", "peso", "yuanes", "precio rmb", "stock", "link", etc.) y descarga de plantillas de ejemplo.
+3. **Generación de Tags y Palabras Clave con Visión IA (Gemini API)**:
+   - Generación automática de palabras clave y descripciones para motores de búsqueda y Sheets a partir del nombre, categoría y foto del artículo, tanto individualmente como por lote (Batch AI Keywords).
+
+---
+
+### 5. PUNTO DE VENTA (POS), CAJA & GENERADOR DE GUÍAS TÉRMICAS 2x4
+1. **Registro Rápido de Ventas & Gastos**:
+   - Búsqueda de productos en inventario con autocompletado y descuento automático de stock en Firestore.
+   - Conversión simultánea en pantalla de USD a Bolívares usando la tasa BCV del momento.
+   - Métodos de pago (Efectivo $, Zelle, Pago Móvil, Punto de Venta, Zinli, USDT).
+2. **Generador de Guías de Envío Térmicas (Medida 2x4 pulgadas / 50x100mm o 4x6)**:
+   - Impresión directa en formato ticket térmico limpio sin márgenes excesivos para impresoras Bluetooth/USB.
+   - Datos: Remitente fijo del negocio, Destinatario (Nombre, Cédula, Teléfono), Agencia destino (MRW, Zoom, Tealca), contenido del paquete y notas de frágil.
+3. **Métricas de Rentabilidad Real**:
+   - Resumen de ingresos brutos, egresos operativos, costo de mercancía vendida (COGS) y ganancia neta real basada en el costo landed exacto de cada producto.
+
+---
+
+### 6. SINCRONIZACIÓN INTELIGENTE CON GOOGLE SHEETS
+1. **Google Sheets OAuth 2.0**:
+   - Vinculación con cuenta de Google y creación automática de una hoja con 2 pestañas:
+     - `[Inventario]`: Catálogo de productos.
+     - `[Ventas_Registradas]`: Historial de pedidos y despachos.
+2. **Selector de Columnas Verde (Sincronizada) vs. Gris (Ignorada / Protegida)**:
+   - Panel de control interactivo donde cada columna tiene un botón toggle:
+     - **Verde**: Sincroniza datos en tiempo real.
+     - **Gris**: Queda ignorada y 100% blindada para no sobreescribir fórmulas propias, vínculos externos (como la tasa BCV) ni datos manuales del usuario.
+   - Columnas base: `Producto_Nombre` (A), `Precio_USD` (B), `Tasa_BCV` (C), `Stock` (D), `imagen_url` (E), `imagen_grupo` (F), `estilo` (G), `palabras clave (descripcion)` (H).
+   - Botón **`+ Agregar Columna`**: permite añadir columnas personalizadas ilimitadas (`Columna I`, `Columna J`, etc.) y elegir si están en verde o gris sin perder ninguna columna base existente.
+3. **Manejo Antiráfaga y Límites de Cuota (Anti-Rate Limit)**:
+   - Reintento con backoff exponencial (`fetchWithSheetsRetry`) ante respuestas HTTP 429 de Google.
+   - Debounce regulado para sincronización en vivo tras ediciones seguidas de stock o precios.
+
+---
+
+### 7. ESTILO Y EXPERIENCIA DE USUARIO (UI/UX)
+- Paleta modo oscuro moderna inspirada en fintech (`#0b0f19`, `#0f172a`, acentos en `emerald-500`, `cyan-400`, `purple-500` y `amber-400`).
+- Tipografía limpia, badges de estado claros, inputs numéricos con formateo bi-moneda instantáneo y modales centrados.
+- Responsive total para uso cómodo tanto en monitores de escritorio de almacén como en teléfonos celulares en ruta.

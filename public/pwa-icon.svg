@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="deltaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="50%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="8"/>
+  
+  <!-- Subtle Grid Lines -->
+  <path d="M64 256 H448 M256 64 V448" stroke="#334155" stroke-width="2" stroke-opacity="0.3" stroke-dasharray="8 8"/>
+  <circle cx="256" cy="256" r="140" fill="none" stroke="#10b981" stroke-opacity="0.1" stroke-width="2"/>
+  
+  <!-- Glowing Delta Polygon -->
+  <polygon points="256,110 396,360 116,360" fill="none" stroke="url(#deltaGrad)" stroke-width="32" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)"/>
+  <polygon points="256,110 396,360 116,360" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="4" stroke-linejoin="round"/>
+  
+  <!-- Inner Dynamic Accent -->
+  <path d="M256 210 L320 330 H192 Z" fill="url(#cyanGrad)" fill-opacity="0.3" stroke="url(#cyanGrad)" stroke-width="8" stroke-linejoin="round"/>
+  
+  <!-- Text Label -->
+  <text x="256" y="420" text-anchor="middle" fill="#10b981" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="42" letter-spacing="6">DELTA V5</text>
+</svg>
