@@ -300,20 +300,51 @@ const getItemImages = (
 };
 
 interface BikerStoreProps {
-  products: Producto[];
-  financialSettings: GlobalFinancialSettings;
+  products?: Producto[];
+  financialSettings?: GlobalFinancialSettings;
   onExitToAdmin?: () => void;
   isAdmin?: boolean;
 }
 
 export const BikerStore: React.FC<BikerStoreProps> = ({
-  products,
-  financialSettings,
+  products = [],
+  financialSettings = {
+    tarifaAereaGramo: 0.020,
+    factorImpuestoAereo: 1.42,
+    tasaYuanUSD: 7.00,
+    tasaBCV: 0,
+    tasaSubasta: 0,
+    factorComisionBarco: 1.07
+  },
   onExitToAdmin,
   isAdmin = true
 }) => {
-  // Exchange rate
-  const tasaBCV = financialSettings.tasaBCV > 0 ? financialSettings.tasaBCV : 1;
+  // Exchange rate fallback if not provided in props
+  const [syncedTasaBCV, setSyncedTasaBCV] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('biker_store_tasa_bcv');
+      return saved ? parseFloat(saved) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const unsub = onSnapshot(doc(db, 'configuracion', 'financiera'), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data && typeof data.tasaBCV === 'number' && data.tasaBCV > 0) {
+            setSyncedTasaBCV(data.tasaBCV);
+            try { localStorage.setItem('biker_store_tasa_bcv', String(data.tasaBCV)); } catch {}
+          }
+        }
+      }, () => {});
+      return () => unsub();
+    } catch {}
+  }, []);
+
+  const tasaBCV = financialSettings.tasaBCV > 0 ? financialSettings.tasaBCV : (syncedTasaBCV > 0 ? syncedTasaBCV : 1);
 
   // Search & Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -515,7 +546,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   };
 
   const handleOpenTextEditorFor = (key: keyof StoreCustomTexts) => {
-    setTextEditorInitialKey(key);
+    setTextEditorInitialKey(String(key));
     setIsTextEditorOpen(true);
   };
 
