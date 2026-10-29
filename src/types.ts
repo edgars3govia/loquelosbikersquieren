@@ -35,6 +35,8 @@ export interface Producto {
   link?: string; // Compatible con enlace original
   categoria?: string;
   categorias?: string[];
+  subcategoria?: string; // Subcategoría individual sincronizada con Delta / Firestore
+  subcategorias?: string[]; // Lista de subcategorías si aplica
   notas?: string;
   grupo_id?: string; // ID del grupo de variantes al que pertenece
   grupo_nombre?: string; // Título general común para todas las variantes (ej: "Casco Integral Pro Venom")
@@ -43,6 +45,14 @@ export interface Producto {
   variante_imagen_miniatura?: string; // Imagen miniatura asociada para el selector visual
   variante_imagen_hd?: string; // Imagen principal en alta resolución
   es_principal_grupo?: boolean; // Define si este producto es la portada/principal del grupo en el catálogo
+  grupo_tiene_kit?: boolean | string | number; // Indica si el grupo cuenta con opción o kit unificado
+  grupo_kit_imagen?: string; // Enlace o ID de la foto unificada del kit
+  grupo_kit_nombre?: string; // Nombre asignado al kit unificado (ej: "Kit Completo", "Kit 4 Piezas")
+  kit_nombre?: string; // Nombre alternativo del kit
+  nombre_kit?: string; // Nombre alternativo adicional del kit
+  grupo_kit_precio?: number; // Precio específico del kit si aplica
+  es_kit?: boolean; // Identificador lógico de si este ítem corresponde a la opción Kit
+  kit_componentes_ids?: string[]; // IDs de las variantes individuales que componen el kit
   userId: string;
   createdAt: string;
   updatedAt?: string;
@@ -52,7 +62,12 @@ export interface GrupoVarianteDef {
   id: string;
   titulo_general: string;
   categoria?: string;
+  subcategoria?: string;
   grupo_imagen_portada?: string; // Enlace adicional de foto de portada para el grupo en el e-commerce
+  grupo_tiene_kit?: boolean | string | number;
+  grupo_kit_imagen?: string;
+  grupo_kit_nombre?: string;
+  kit_nombre?: string;
   producto_principal_id?: string;
   variantes: {
     producto_id: string;
@@ -176,6 +191,8 @@ export interface PedidoTiendaItem {
   cantidad: number;
   precio_unitario: number;
   subtotal: number;
+  es_kit?: boolean;
+  kit_componentes_ids?: string[];
 }
 
 export interface PedidoTienda {

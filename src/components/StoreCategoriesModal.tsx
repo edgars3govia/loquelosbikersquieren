@@ -117,7 +117,7 @@ export const StoreCategoriesModal: React.FC<StoreCategoriesModalProps> = ({
               <Store size={20} />
             </div>
             <div>
-              <h3 className="font-anton text-lg sm:text-xl uppercase tracking-wider text-white flex items-center gap-2">
+              <h3 className="font-extrabold text-lg sm:text-xl uppercase tracking-tight text-white flex items-center gap-2">
                 <span>Categorías de la Tienda Online</span>
                 {saveToast && (
                   <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full animate-fade-in flex items-center gap-1">
@@ -276,7 +276,7 @@ export const StoreCategoriesModal: React.FC<StoreCategoriesModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-full sm:w-auto px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-anton uppercase tracking-wider text-xs rounded-xl cursor-pointer transition-all ml-auto"
+            className="w-full sm:w-auto px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-bold uppercase text-xs rounded-xl cursor-pointer transition-all ml-auto"
           >
             Listo / Cerrar
           </button>

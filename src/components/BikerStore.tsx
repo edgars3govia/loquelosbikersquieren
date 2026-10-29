@@ -50,8 +50,20 @@ import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, addDoc, wri
 import { db, cleanForFirestore } from '../lib/firebase';
 import { Producto, CartItem, PedidoTienda, PedidoTiendaItem, GlobalFinancialSettings, StoreCustomTexts, PaymentMethodConfig } from '../types';
 import { formatDirectImageUrl, extractDriveFileId } from '../utils/imageUrlHelper';
-import { removeAccents, matchesSearch, getCategoryKey, formatCategoryDisplay, getProductCategoryKeys, getProductCategoryNames } from '../utils/textUtils';
 import { compressAndResizeImage } from '../utils/fileHelpers';
+import { 
+  removeAccents, 
+  matchesSearch, 
+  normalizeSearch,
+  getCategoryKey, 
+  formatCategoryDisplay, 
+  getProductCategoryKeys, 
+  getProductCategoryNames,
+  getSubcategoryKey,
+  formatSubcategoryDisplay,
+  getProductSubcategoryKeys,
+  getProductSubcategoryNames
+} from '../utils/textUtils';
 import { StoreCategoriesModal } from './StoreCategoriesModal';
 import { StoreTextEditorModal, DEFAULT_STORE_TEXTS } from './StoreTextEditorModal';
 import { EditableStoreText } from './EditableStoreText';
@@ -239,11 +251,38 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
   );
 };
 
-// Helper para reunir ÚNICAMENTE las fotos disponibles de la variante activa (Galería del modelo actual)
+// Helper para reunir las fotos disponibles garantizando exclusividad absoluta:
+// - Si la variante es la opción Kit (es_kit): muestra la foto unificada del kit (grupo_kit_imagen).
+// - Si es una variante individual: reúne las fotos de esa variante y EXCLUYE estrictamente la foto unificada del kit.
 const getItemImages = (
-  item: { isGroup: boolean; coverProduct: Producto; variants: Producto[] },
+  item: {
+    isGroup: boolean;
+    coverProduct: Producto;
+    variants: Producto[];
+    hasKit?: boolean;
+    kitImage?: string;
+  },
   activeVariant: Producto
 ): string[] => {
+  // 1. Obtener identificadores y URLs de la foto unificada del kit si existe
+  const rawKitImg = item.kitImage || activeVariant.grupo_kit_imagen || item.coverProduct?.grupo_kit_imagen || '';
+  const kitDirectUrl = rawKitImg ? formatDirectImageUrl(rawKitImg) : '';
+  const kitDriveId = rawKitImg ? (extractDriveFileId(rawKitImg) || (!rawKitImg.includes('/') ? rawKitImg : '')) : '';
+
+  // CASO A: La variante activa ES la opción Kit
+  if (activeVariant.es_kit) {
+    const kitPhotos: string[] = [];
+    if (kitDirectUrl) kitPhotos.push(kitDirectUrl);
+    const varMain = formatDirectImageUrl(activeVariant.imagen_url || activeVariant.link);
+    if (varMain && !kitPhotos.includes(varMain)) kitPhotos.push(varMain);
+    if (activeVariant.variante_imagen_hd) {
+      const hd = formatDirectImageUrl(activeVariant.variante_imagen_hd);
+      if (hd && !kitPhotos.includes(hd)) kitPhotos.push(hd);
+    }
+    return kitPhotos.length > 0 ? kitPhotos : (kitDirectUrl ? [kitDirectUrl] : []);
+  }
+
+  // CASO B: Variante individual regular (la foto unificada del kit NO debe repetirse aquí)
   const imagesList: string[] = [];
 
   // 1. Foto principal de la variante activa (prioridad máxima)
@@ -286,12 +325,18 @@ const getItemImages = (
     imagesList.push(formatDirectImageUrl(item.coverProduct.grupo_imagen_portada));
   }
 
-  // Deduplicar manteniendo el orden de prioridad
+  // Deduplicar manteniendo el orden de prioridad y APLICAR EXCLUSIVIDAD ESTRICTA DEL KIT
   const seen = new Set<string>();
   const uniqueList: string[] = [];
   imagesList.forEach(url => {
     const clean = url?.trim();
-    if (clean && !seen.has(clean)) {
+    if (!clean || seen.has(clean)) return;
+
+    // Verificar si esta foto es la del kit para excluirla de las variantes individuales
+    const isKitPhoto = (kitDirectUrl && clean === kitDirectUrl) || 
+                       (kitDriveId && (clean.includes(kitDriveId) || extractDriveFileId(clean) === kitDriveId));
+
+    if (!isKitPhoto) {
       seen.add(clean);
       uniqueList.push(clean);
     }
@@ -409,8 +454,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   // Search & Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'destacados' | 'precio_asc' | 'precio_desc' | 'nombre'>('destacados');
-  const [onlyInStock, setOnlyInStock] = useState<boolean>(false);
 
   // Cart State (persisted in localStorage for customer convenience)
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -487,6 +533,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             ...data,
             nombre: removeAccents(data.nombre || ''),
             categoria: removeAccents(data.categoria || ''),
+            subcategoria: data.subcategoria ? removeAccents(String(data.subcategoria)).trim() : '',
+            subcategorias: Array.isArray(data.subcategorias)
+              ? data.subcategorias.map((s: any) => removeAccents(String(s || '')).trim()).filter(Boolean)
+              : (data.subcategoria ? [removeAccents(String(data.subcategoria)).trim()] : []),
             palabras_clave: removeAccents(data.palabras_clave || ''),
             link: rawLink || (idOnly ? `https://drive.google.com/file/d/${idOnly}/view` : ''),
             imagen_url: idOnly || data.imagen_url || ''
@@ -692,6 +742,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const categories = useMemo(() => {
     const catMap = new Map<string, string>();
     sourceProducts.forEach((p) => {
+      // Ocultar categorías si sus productos están agotados (stock <= 0)
+      const stock = Number(p.stock_disponible ?? 0);
+      if (isNaN(stock) || stock <= 0) return;
+
       const keys = getProductCategoryKeys(p);
       const names = getProductCategoryNames(p);
       keys.forEach((key, idx) => {
@@ -708,6 +762,86 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     return Array.from(catMap.values()).sort((a, b) => a.localeCompare(b));
   }, [sourceProducts, hiddenCategories]);
 
+  // 3. EXTRACCIÓN DINÁMICA DE SUBCATEGORÍAS (useMemo)
+  // Nota: Se excluye explícitamente cualquier subcategoría cuyo nombre coincida con la categoría general
+  const subcategoriesByCategory = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    sourceProducts.forEach((p) => {
+      const stock = Number(p.stock_disponible ?? 0);
+      if (isNaN(stock) || stock <= 0) return;
+      const hasPrice = (p.precio_venta_ref && p.precio_venta_ref > 0) || (p.precio_mayor && p.precio_mayor > 0);
+      if (!hasPrice) return;
+
+      // Extraer subcategorías tanto del campo string 'subcategoria' como de posibles arrays
+      const candidates: string[] = [];
+      if (p.subcategoria && typeof p.subcategoria === 'string' && p.subcategoria.trim()) {
+        candidates.push(p.subcategoria.trim());
+      }
+      if (Array.isArray(p.subcategorias)) {
+        p.subcategorias.forEach((s) => {
+          if (typeof s === 'string' && s.trim()) candidates.push(s.trim());
+        });
+      }
+      if (candidates.length === 0) return;
+
+      const prodKeys = getProductCategoryKeys(p);
+      const prodNames = getProductCategoryNames(p);
+
+      prodKeys.forEach((key, idx) => {
+        if (!key || key === 'sin categoria' || hiddenCategories.includes(key)) return;
+        const catName = prodNames[idx] || formatCategoryDisplay(key);
+        const catKey = getCategoryKey(catName);
+
+        candidates.forEach((rawSub) => {
+          const subKey = getSubcategoryKey(rawSub);
+          const normalizedSub = normalizeSearch(rawSub);
+          const normalizedCat = normalizeSearch(catName);
+
+          // NO REPETIR la categoría general en el despliegue de las subcategorías:
+          // Si la subcategoría es idéntica o equivalente a la categoría general, se ignora por completo.
+          if (
+            !subKey ||
+            subKey === 'sin subcategoria' ||
+            subKey === 'sin categoria' ||
+            subKey === 'general' ||
+            subKey === key ||
+            subKey === catKey ||
+            normalizedSub === normalizedCat ||
+            rawSub.toLowerCase().trim() === catName.toLowerCase().trim()
+          ) {
+            return;
+          }
+
+          const displaySub = formatSubcategoryDisplay(rawSub) || rawSub;
+          const subMap = map.get(catName) || new Map<string, number>();
+          subMap.set(displaySub, (subMap.get(displaySub) || 0) + 1);
+          map.set(catName, subMap);
+        });
+      });
+    });
+
+    const result: Record<string, { name: string; count: number }[]> = {};
+    map.forEach((subMap, catName) => {
+      const catKey = getCategoryKey(catName);
+      const items = Array.from(subMap.entries())
+        .filter(([name]) => {
+          const subKey = getSubcategoryKey(name);
+          return (
+            subKey !== catKey &&
+            normalizeSearch(name) !== normalizeSearch(catName) &&
+            name.toLowerCase().trim() !== catName.toLowerCase().trim()
+          );
+        })
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      if (items.length > 0) {
+        result[catName] = items;
+      }
+    });
+    return result;
+  }, [sourceProducts, hiddenCategories]);
+
   // Filtered & Sorted Products
   const filteredProducts = useMemo(() => {
     let result = sourceProducts.filter((p) => {
@@ -715,14 +849,15 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       const hasPrice = (p.precio_venta_ref && p.precio_venta_ref > 0) || (p.precio_mayor && p.precio_mayor > 0);
       if (!hasPrice) return false;
 
-      // Ocultar productos de categorías desactivadas (ej: embalaje, uso interno) si todas sus categorías están ocultas
-      const prodKeys = getProductCategoryKeys(p);
-      if (prodKeys.length > 0 && prodKeys.every((k) => hiddenCategories.includes(k))) {
+      // Ocultar estrictamente productos agotados (stock <= 0 o no disponible)
+      const stock = Number(p.stock_disponible ?? 0);
+      if (isNaN(stock) || stock <= 0) {
         return false;
       }
 
-      // Stock filter
-      if (onlyInStock && (!p.stock_disponible || p.stock_disponible <= 0)) {
+      // Ocultar productos de categorías desactivadas (ej: embalaje, uso interno) si todas sus categorías están ocultas
+      const prodKeys = getProductCategoryKeys(p);
+      if (prodKeys.length > 0 && prodKeys.every((k) => hiddenCategories.includes(k))) {
         return false;
       }
 
@@ -734,15 +869,45 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         }
       }
 
+      // Subcategory filter: filtrado instantáneo por la subcategoría seleccionada
+      if (selectedSubcategory) {
+        const targetSubKey = getSubcategoryKey(selectedSubcategory);
+        const targetSubNorm = normalizeSearch(selectedSubcategory);
+        const prodSubKeys = getProductSubcategoryKeys(p);
+        let matchesSubcat = prodSubKeys.includes(targetSubKey);
+        if (!matchesSubcat && p.subcategoria) {
+          matchesSubcat = getSubcategoryKey(p.subcategoria) === targetSubKey || normalizeSearch(p.subcategoria) === targetSubNorm;
+        }
+        if (!matchesSubcat && Array.isArray(p.subcategorias)) {
+          matchesSubcat = p.subcategorias.some(s => getSubcategoryKey(s) === targetSubKey || normalizeSearch(s) === targetSubNorm);
+        }
+        if (!matchesSubcat && p.grupo_id) {
+          const groupSiblings = sourceProducts.filter(v => v.grupo_id === p.grupo_id);
+          matchesSubcat = groupSiblings.some(v => {
+            const vKeys = getProductSubcategoryKeys(v);
+            if (vKeys.includes(targetSubKey)) return true;
+            if (v.subcategoria && (getSubcategoryKey(v.subcategoria) === targetSubKey || normalizeSearch(v.subcategoria) === targetSubNorm)) return true;
+            if (Array.isArray(v.subcategorias)) {
+              return v.subcategorias.some(s => getSubcategoryKey(s) === targetSubKey || normalizeSearch(s) === targetSubNorm);
+            }
+            return false;
+          });
+        }
+        if (!matchesSubcat) {
+          return false;
+        }
+      }
+
       // Search match
       if (searchQuery.trim()) {
         const matchName = matchesSearch(p.nombre, searchQuery);
         const matchSku = matchesSearch(p.sku, searchQuery);
         const matchCat = matchesSearch(p.categoria, searchQuery) || (Array.isArray(p.categorias) && p.categorias.some(c => matchesSearch(c, searchQuery)));
+        const matchSubcat = matchesSearch(p.subcategoria, searchQuery) || (Array.isArray(p.subcategorias) && p.subcategorias.some(s => matchesSearch(s, searchQuery)));
         const matchKeywords = matchesSearch(p.palabras_clave, searchQuery);
         const matchGroup = p.grupo_nombre ? matchesSearch(p.grupo_nombre, searchQuery) : false;
         const matchVariant = p.variante_nombre ? matchesSearch(p.variante_nombre, searchQuery) : false;
-        if (!matchName && !matchSku && !matchCat && !matchKeywords && !matchGroup && !matchVariant) {
+        if (!matchName && !matchSku && !matchCat && !matchSubcat && !matchKeywords && !matchGroup && !matchVariant) {
           return false;
         }
       }
@@ -766,7 +931,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     });
 
     return result;
-  }, [sourceProducts, searchQuery, selectedCategory, sortBy, onlyInStock, hiddenCategories]);
+  }, [sourceProducts, searchQuery, selectedCategory, selectedSubcategory, sortBy, hiddenCategories]);
 
   // Agrupación de artículos por grupo de variantes para la tienda e-commerce
   const catalogItems = useMemo(() => {
@@ -789,6 +954,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       title: string;
       coverProduct: Producto;
       variants: Producto[];
+      individualVariants: Producto[];
+      kitVariant: Producto | null;
+      hasKit: boolean;
+      kitImage: string;
+      kitName?: string;
       priceMin: number;
       priceMax: number;
       totalStock: number;
@@ -803,18 +973,158 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         processedGroupIds.add(p.grupo_id);
 
         const variants = groupMap.get(p.grupo_id) || [p];
-        // Ordenar variantes: la principal de portada primero, luego alfabéticamente por nombre de variante
-        variants.sort((a, b) => {
+
+        // 1. Detección de si el grupo tiene kit (grupo_tiene_kit)
+        const hasKit = Boolean(
+          variants.some(v => 
+            v.grupo_tiene_kit === true || 
+            v.grupo_tiene_kit === 'true' || 
+            v.grupo_tiene_kit === 'si' || 
+            v.grupo_tiene_kit === 1 || 
+            v.es_kit === true
+          ) || 
+          p.grupo_tiene_kit === true || 
+          p.grupo_tiene_kit === 'true' || 
+          p.grupo_tiene_kit === 'si' || 
+          p.grupo_tiene_kit === 1
+        );
+
+        // 2. Foto unificada del kit (grupo_kit_imagen)
+        const kitImage = variants.find(v => v.grupo_kit_imagen)?.grupo_kit_imagen || 
+                         p.grupo_kit_imagen || 
+                         '';
+
+        // 3. Filtrar variantes individuales (excluyendo cualquier ítem de tipo kit y asegurando stock > 0)
+        const individualVariants = variants.filter(v => 
+          !v.es_kit && 
+          v.variante_nombre?.toLowerCase() !== 'kit' && 
+          !v.nombre?.toLowerCase().startsWith('kit ') &&
+          (Number(v.stock_disponible) || 0) > 0
+        );
+
+        // Ordenar variantes individuales: la principal primero, luego alfabéticamente
+        individualVariants.sort((a, b) => {
           if (a.es_principal_grupo && !b.es_principal_grupo) return -1;
           if (!a.es_principal_grupo && b.es_principal_grupo) return 1;
           return (a.variante_nombre || a.nombre).localeCompare(b.variante_nombre || b.nombre);
         });
 
-        const cover = variants.find(v => v.es_principal_grupo) || variants[0];
-        const validPrices = variants.map(v => v.precio_venta_ref || v.precio_mayor || 0).filter(pr => pr > 0);
+        // 4. Buscar si ya existe una variante de kit explícita en los productos del grupo con stock
+        let kitVariant = variants.find(v => 
+          (v.es_kit === true || 
+          v.variante_nombre?.toLowerCase() === 'kit' || 
+          v.nombre?.toLowerCase().startsWith('kit ')) &&
+          (Number(v.stock_disponible) || 0) > 0
+        ) || null;
+
+        const coverBase = individualVariants.find(v => v.es_principal_grupo) || individualVariants[0] || variants.find(v => (Number(v.stock_disponible) || 0) > 0) || variants[0];
+        const coverProduct = coverBase;
+
+        // 5. Nombre asignado para el kit unificado desde Firestore (grupo_kit_nombre / kit_nombre / nombre_kit)
+        const rawKitNombre = (
+          variants.find(v => (v as any).grupo_kit_nombre)?.grupo_kit_nombre ||
+          p.grupo_kit_nombre ||
+          coverBase?.grupo_kit_nombre ||
+          variants.find(v => (v as any).kit_nombre)?.kit_nombre ||
+          p.kit_nombre ||
+          coverBase?.kit_nombre ||
+          variants.find(v => (v as any).nombre_kit)?.nombre_kit ||
+          (p as any).nombre_kit ||
+          (kitVariant?.variante_nombre && kitVariant?.variante_nombre.toLowerCase() !== 'kit' ? kitVariant.variante_nombre : undefined) ||
+          ''
+        )?.trim();
+
+        const kitNombre = rawKitNombre || 'Kit';
+
+        if (hasKit) {
+          // Cálculo del precio del Kit:
+          // 1. grupo_kit_precio de Firestore (si está definido y es > 0)
+          // 2. Si grupo_kit_precio viene vacío o en null/0, sumar precios de variantes individuales
+          const sumOfVariants = individualVariants.reduce((sum, v) => sum + (v.precio_venta_ref || v.precio_mayor || 0), 0);
+          const rawKitPrecio = Number(
+            coverProduct?.grupo_kit_precio ?? 
+            p.grupo_kit_precio ?? 
+            variants.find(v => Number(v.grupo_kit_precio) > 0)?.grupo_kit_precio ?? 
+            (kitVariant ? kitVariant.grupo_kit_precio : undefined) ?? 
+            0
+          );
+          const kitPrice = (rawKitPrecio > 0) ? rawKitPrecio : (sumOfVariants > 0 ? sumOfVariants : (coverProduct.precio_venta_ref || coverProduct.precio_mayor || 0));
+          const kitComponentesIds = individualVariants.map(v => v.id);
+
+          if (!kitVariant) {
+            // Sintetizar la miniatura del Kit con su respectiva foto y nombre asignado
+            const calculatedKitStock = individualVariants.length > 0 
+              ? Math.min(...individualVariants.map(v => Number(v.stock_disponible) || 0)) 
+              : (Number(coverBase?.stock_disponible) || 0);
+
+            // Solo sintetizar la variante de Kit si tiene stock disponible
+            if (calculatedKitStock > 0) {
+              kitVariant = {
+                ...coverBase,
+                id: `${p.grupo_id || coverBase.id}-kit-opc`,
+                sku: `${coverBase.sku || 'KIT'}-KIT`,
+                nombre: coverBase.grupo_nombre ? `${coverBase.grupo_nombre} (${kitNombre})` : `${coverBase.nombre} (${kitNombre})`,
+                variante_nombre: kitNombre,
+                es_kit: true,
+                grupo_tiene_kit: true,
+                grupo_kit_imagen: kitImage,
+                grupo_kit_nombre: kitNombre,
+                kit_nombre: kitNombre,
+                grupo_kit_precio: kitPrice,
+                imagen_url: kitImage,
+                variante_imagen_miniatura: kitImage,
+                variante_imagen_hd: kitImage,
+                precio_venta_ref: kitPrice,
+                precio_mayor: kitPrice,
+                stock_disponible: calculatedKitStock,
+                kit_componentes_ids: kitComponentesIds
+              };
+            }
+          } else {
+            // Asegurar propiedades de kit con foto unificada, PRECIO y NOMBRE ASIGNADO DEL KIT
+            if ((Number(kitVariant.stock_disponible) || 0) <= 0) {
+              kitVariant = null;
+            } else {
+              kitVariant = {
+                ...kitVariant,
+                es_kit: true,
+                variante_nombre: kitVariant.variante_nombre && kitVariant.variante_nombre.toLowerCase() !== 'kit' ? kitVariant.variante_nombre : kitNombre,
+                nombre: kitVariant.nombre || (coverBase.grupo_nombre ? `${coverBase.grupo_nombre} (${kitNombre})` : kitNombre),
+                grupo_tiene_kit: true,
+                grupo_kit_imagen: kitImage || kitVariant.grupo_kit_imagen || kitVariant.imagen_url,
+                grupo_kit_nombre: kitNombre,
+                kit_nombre: kitNombre,
+                grupo_kit_precio: kitPrice,
+                variante_imagen_miniatura: kitImage || kitVariant.variante_imagen_miniatura || kitVariant.imagen_url,
+                imagen_url: kitImage || kitVariant.imagen_url,
+                precio_venta_ref: kitPrice,
+                precio_mayor: kitPrice,
+                kit_componentes_ids: kitComponentesIds
+              };
+            }
+          }
+        }
+
+        // Tira completa de opciones: variantes individuales primero, seguidas por el Kit al final (solo con stock)
+        const allVariants = (hasKit && kitVariant 
+          ? [...individualVariants, kitVariant] 
+          : (individualVariants.length > 0 ? individualVariants : variants)
+        ).filter(v => (Number(v.stock_disponible) || 0) > 0);
+
+        // Si el grupo no tiene variantes disponibles con stock, no mostrar la tarjeta
+        if (allVariants.length === 0) {
+          return;
+        }
+
+        const cover = coverBase || allVariants[0];
+        const validPrices = allVariants.map(v => v.precio_venta_ref || v.precio_mayor || 0).filter(pr => pr > 0);
         const priceMin = validPrices.length > 0 ? Math.min(...validPrices) : (cover.precio_venta_ref || cover.precio_mayor || 0);
         const priceMax = validPrices.length > 0 ? Math.max(...validPrices) : (cover.precio_venta_ref || cover.precio_mayor || 0);
-        const totalStock = variants.reduce((sum, v) => sum + (v.stock_disponible || 0), 0);
+        const totalStock = allVariants.reduce((sum, v) => sum + (Number(v.stock_disponible) || 0), 0);
+
+        if (totalStock <= 0) {
+          return;
+        }
 
         items.push({
           id: p.grupo_id,
@@ -822,7 +1132,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           groupId: p.grupo_id,
           title: cover.grupo_nombre || cover.nombre,
           coverProduct: cover,
-          variants,
+          variants: allVariants,
+          individualVariants,
+          kitVariant,
+          hasKit,
+          kitImage,
+          kitName: kitNombre,
           priceMin,
           priceMax,
           totalStock,
@@ -831,6 +1146,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           palabras_clave: cover.palabras_clave
         });
       } else {
+        const itemStock = Number(p.stock_disponible) || 0;
+        if (itemStock <= 0) {
+          return;
+        }
+
+        const hasKit = Boolean(
+          p.grupo_tiene_kit === true || 
+          p.grupo_tiene_kit === 'true' || 
+          p.grupo_tiene_kit === 'si' || 
+          p.grupo_tiene_kit === 1 || 
+          p.es_kit === true
+        );
+        const kitImage = p.grupo_kit_imagen || '';
+        const kitNombre = p.grupo_kit_nombre || p.kit_nombre || (p as any).nombre_kit || 'Kit';
         const price = p.precio_venta_ref || p.precio_mayor || 0;
         items.push({
           id: p.id,
@@ -838,9 +1167,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           title: p.nombre,
           coverProduct: p,
           variants: [p],
+          individualVariants: [p],
+          kitVariant: null,
+          hasKit,
+          kitImage,
+          kitName: kitNombre,
           priceMin: price,
           priceMax: price,
-          totalStock: p.stock_disponible || 0,
+          totalStock: itemStock,
           categoria: p.categoria,
           categorias: p.categorias,
           palabras_clave: p.palabras_clave
@@ -865,13 +1199,50 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
   // Add to cart
   const handleAddToCart = (product: Producto, qty: number = 1) => {
-    const unitPrice = product.precio_venta_ref || product.precio_mayor || 0;
-    if (unitPrice <= 0) return;
+    let unitPrice = product.precio_venta_ref || product.precio_mayor || 0;
+    const isKit = Boolean(product.es_kit || product.variante_nombre?.toLowerCase() === 'kit');
 
-    // Si el producto pertenece a un grupo y tiene variante_nombre, formatear el título limpio para el carrito
-    const displayProduct = (product.grupo_nombre && product.variante_nombre)
-      ? { ...product, nombre: `${product.grupo_nombre} (${product.variante_nombre})` }
-      : product;
+    let displayProduct = product;
+    if (isKit) {
+      // Si es un kit, asegurarse de que el precio unitario sea el precio total del Kit
+      let kitPrice = product.precio_venta_ref || product.grupo_kit_precio || 0;
+      let kitComponents: string[] = product.kit_componentes_ids || [];
+
+      if (product.grupo_id) {
+        const groupItem = catalogItems.find(it => it.groupId === product.grupo_id || it.id === product.grupo_id);
+        if (groupItem) {
+          if (!kitPrice || kitPrice <= 0 || (groupItem.kitVariant && kitPrice < (groupItem.kitVariant.precio_venta_ref || 0))) {
+            kitPrice = groupItem.kitVariant?.precio_venta_ref || groupItem.priceMax || kitPrice;
+          }
+          if (kitComponents.length === 0 && groupItem.individualVariants.length > 0) {
+            kitComponents = groupItem.individualVariants.map(v => v.id);
+          }
+        }
+      }
+
+      if (kitPrice > 0) {
+        unitPrice = kitPrice;
+      }
+
+      displayProduct = {
+        ...product,
+        nombre: product.nombre.toLowerCase().includes('(kit)') 
+          ? product.nombre 
+          : `${product.grupo_nombre || product.nombre} (Kit)`,
+        es_kit: true,
+        precio_venta_ref: unitPrice,
+        precio_mayor: unitPrice,
+        grupo_kit_precio: unitPrice,
+        kit_componentes_ids: kitComponents
+      };
+    } else if (product.grupo_nombre && product.variante_nombre) {
+      displayProduct = {
+        ...product,
+        nombre: `${product.grupo_nombre} (${product.variante_nombre})`
+      };
+    }
+
+    if (unitPrice <= 0) return;
 
     setCart((prevCart) => {
       const existingIdx = prevCart.findIndex((item) => item.product.id === displayProduct.id);
@@ -881,8 +1252,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             const newQty = item.quantity + qty;
             return {
               ...item,
+              product: displayProduct,
               quantity: newQty,
-              subtotal: Number((item.precio_unitario * newQty).toFixed(2))
+              precio_unitario: unitPrice,
+              subtotal: Number((unitPrice * newQty).toFixed(2))
             };
           }
           return item;
@@ -933,13 +1306,41 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     );
   };
 
-  // Helper to open QuickView modal and initialize variant & quantity
-  const openQuickView = (variant: Producto) => {
-    setQuickViewProduct(variant);
-    setQuickViewActiveVariant(variant);
+  // Helper to open QuickView modal
+  const openQuickView = (variant: Producto, keepSelectedKit: boolean = false) => {
+    let effectiveVariant = variant;
+    // Si la variante enviada es el kit pero no se forzó mantenerlo (ej: apertura inicial desde imagen/título), preseleccionar la primera variante individual
+    if (!keepSelectedKit && effectiveVariant.es_kit && effectiveVariant.grupo_id) {
+      const parent = catalogItems.find(it => it.groupId === effectiveVariant.grupo_id || it.id === effectiveVariant.grupo_id);
+      if (parent && parent.individualVariants && parent.individualVariants.length > 0) {
+        effectiveVariant = parent.individualVariants[0];
+      }
+    }
+    setQuickViewProduct(effectiveVariant);
+    setQuickViewActiveVariant(effectiveVariant);
     setQuickViewImageIndex(0);
     setQuickViewQty(1);
     setQuickViewAdded(false);
+  };
+
+  // Apertura desde la tarjeta del catálogo: si el usuario ya seleccionó una opción (incluyendo el Kit), abrir con esa opción; si no, preselecciona la primera individual
+  const handleOpenCardQuickView = (item: (typeof catalogItems)[0]) => {
+    const selectedId = selectedVariantMap[item.id];
+    if (selectedId) {
+      const selectedVar = item.variants.find(v => v.id === selectedId);
+      if (selectedVar) {
+        openQuickView(selectedVar, true);
+        return;
+      }
+    }
+    // Si no ha seleccionado ninguna miniatura en la tarjeta, preselecciona la primera individual
+    if (item.hasKit && item.individualVariants && item.individualVariants.length > 0) {
+      openQuickView(item.individualVariants[0]);
+    } else if (item.isGroup && item.variants.length > 0) {
+      openQuickView(item.variants.find(v => !v.es_kit) || item.coverProduct);
+    } else {
+      openQuickView(item.coverProduct);
+    }
   };
 
   // Remove from cart
@@ -1038,7 +1439,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         categoria: item.product.categoria ? removeAccents(item.product.categoria) : '',
         cantidad: item.quantity,
         precio_unitario: item.precio_unitario,
-        subtotal: item.subtotal
+        subtotal: item.subtotal,
+        es_kit: Boolean(item.product.es_kit),
+        kit_componentes_ids: item.product.kit_componentes_ids || undefined
       }));
 
       if (tipoConfirmacion === 'comprobante') {
@@ -1075,7 +1478,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             priceUSD: it.precio_unitario,
             priceBS: Number((it.precio_unitario * tasaBCV).toFixed(2)),
             sku: it.sku || '',
-            productId: it.productId || ''
+            productId: it.productId || '',
+            es_kit: it.es_kit || false,
+            kit_componentes_ids: it.kit_componentes_ids || []
           })),
           currencyMode: 'USD',
           additionalAmount: 0,
@@ -1096,10 +1501,29 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
         const incomeDocRef = await addDoc(collection(db, 'income'), incomePayload);
 
-        // Deduct inventory in 'productos'
+        // Deduct inventory in 'productos' (descuenta 1 unidad de cada variante componente si es un Kit)
         const batch = writeBatch(db);
         orderItems.forEach((it) => {
-          if (it.productId) {
+          if (it.es_kit && it.kit_componentes_ids && it.kit_componentes_ids.length > 0) {
+            // Descontar 1 unidad (por cada kit) de cada variante individual del grupo
+            it.kit_componentes_ids.forEach((compProductId) => {
+              if (compProductId) {
+                const prodRef = doc(db, 'productos', compProductId);
+                batch.update(prodRef, {
+                  stock_disponible: increment(-it.cantidad),
+                  updatedAt: new Date().toISOString()
+                });
+              }
+            });
+            // Si el item del kit tiene doc real en 'productos' (no es solo sintético terminado en -kit-opc)
+            if (it.productId && !it.productId.includes('-kit-opc')) {
+              const prodRef = doc(db, 'productos', it.productId);
+              batch.update(prodRef, {
+                stock_disponible: increment(-it.cantidad),
+                updatedAt: new Date().toISOString()
+              });
+            }
+          } else if (it.productId) {
             const prodRef = doc(db, 'productos', it.productId);
             batch.update(prodRef, {
               stock_disponible: increment(-it.cantidad),
@@ -1434,35 +1858,128 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             </div>
           </div>
 
-          {/* HORIZONTAL CATEGORIES BAR (UNIFICADO EN #000000, TIPOGRAFÍA BLANCA Y COMPACTA) */}
-          <div className="bg-[#000000] px-3 sm:px-6 py-2 overflow-x-auto flex items-center gap-1.5 sm:gap-2 custom-scrollbar border-t border-white/10">
+          {/* 5. MENÚ SUPERIOR CON DESPLEGABLE EN HOVER (TIPO SHEIN/AMAZON) */}
+          <div className="bg-[#0e121b] border-t border-white/5 px-3 sm:px-6 py-2 overflow-x-auto md:overflow-visible flex items-center gap-1.5 sm:gap-2 custom-scrollbar relative z-30">
             <button
               type="button"
-              onClick={() => setSelectedCategory('all')}
-              className={`px-3 py-1 rounded-lg text-xs uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
-                selectedCategory === 'all'
-                  ? 'bg-[#FF5200] text-white font-black shadow-xs'
-                  : 'text-white/80 hover:text-white hover:bg-white/10 font-bold'
+              onClick={() => {
+                setSelectedCategory('all');
+                setSelectedSubcategory(null);
+              }}
+              className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+                selectedCategory === 'all' && !selectedSubcategory
+                  ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
+                  : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
               }`}
             >
               🔥 Todos los Productos
             </button>
 
             {categories.map((cat, catIdx) => {
-              const isSelected = getCategoryKey(selectedCategory) === getCategoryKey(cat);
+              const isCatSelected = getCategoryKey(selectedCategory) === getCategoryKey(cat);
+              const rawSubs = subcategoriesByCategory[cat] || [];
+              // Filtrar estrictamente cualquier subcategoría que coincida con la categoría general
+              const subs = rawSubs.filter(
+                (s) =>
+                  getCategoryKey(s.name) !== getCategoryKey(cat) &&
+                  normalizeSearch(s.name) !== normalizeSearch(cat) &&
+                  s.name.toLowerCase().trim() !== cat.toLowerCase().trim()
+              );
+              const hasSubs = subs.length > 0;
+              const isHovered = hoveredCategory === cat;
+
               return (
-                <button
-                  key={`biker-cat-${cat}-${catIdx}`}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1 rounded-lg text-xs uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#FF5200] text-white font-black shadow-xs'
-                      : 'text-white/80 hover:text-white hover:bg-white/10 font-semibold'
-                  }`}
+                <div
+                  key={`biker-cat-wrap-${cat}-${catIdx}`}
+                  className="relative group shrink-0"
+                  onMouseEnter={() => setHoveredCategory(cat)}
+                  onMouseLeave={() => setHoveredCategory(null)}
                 >
-                  {cat}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory(cat);
+                      setSelectedSubcategory(null);
+                    }}
+                    className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 ${
+                      isCatSelected
+                        ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
+                        : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
+                    }`}
+                  >
+                    <span>{cat}</span>
+                    {hasSubs && (
+                      <ChevronDown 
+                        size={11} 
+                        className={`transition-transform duration-200 ${
+                          isHovered ? 'rotate-180' : ''
+                        } ${isCatSelected ? 'text-black' : 'text-slate-400'}`} 
+                      />
+                    )}
+                  </button>
+
+                  {hasSubs && (
+                    <div
+                      className={`absolute top-full left-0 pt-1.5 min-w-[210px] z-50 transition-all duration-200 ${
+                        isHovered ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-1 pointer-events-none'
+                      }`}
+                    >
+                      <div className="bg-[#0b0f19]/95 backdrop-blur-xl border border-amber-500/30 rounded-2xl p-2 shadow-2xl shadow-black/90 space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCategory(cat);
+                            setSelectedSubcategory(null);
+                            setHoveredCategory(null);
+                          }}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
+                            isCatSelected && !selectedSubcategory
+                              ? 'bg-amber-400/20 text-amber-300 font-black'
+                              : 'text-slate-300 hover:text-white hover:bg-white/10'
+                          }`}
+                        >
+                          <span>Ver todo</span>
+                          <ArrowRight size={11} className="text-amber-400" />
+                        </button>
+
+                        <div className="border-t border-white/10 my-1" />
+
+                        <div className="max-h-56 overflow-y-auto custom-scrollbar space-y-0.5">
+                          {subs.map((subItem) => {
+                            const isSubSelected = isCatSelected && (
+                              selectedSubcategory?.toLowerCase() === subItem.name.toLowerCase() ||
+                              getSubcategoryKey(selectedSubcategory || '') === getSubcategoryKey(subItem.name)
+                            );
+
+                            return (
+                              <button
+                                key={`sub-${cat}-${subItem.name}`}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedCategory(cat);
+                                  setSelectedSubcategory(subItem.name);
+                                  setHoveredCategory(null);
+                                }}
+                                className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                  isSubSelected
+                                    ? 'bg-amber-400 text-black font-black shadow-md shadow-amber-400/20'
+                                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                                }`}
+                              >
+                                <span className="truncate">{subItem.name}</span>
+                                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-md ${
+                                  isSubSelected ? 'bg-black/20 text-black' : 'bg-white/5 text-slate-400'
+                                }`}>
+                                  {subItem.count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -1593,29 +2110,50 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               </span>
             </div>
             {selectedCategory !== 'all' && (
-              <span className="text-[10.5px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-full">
-                {selectedCategory}
+              <span className="text-[10.5px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
+                <span>{selectedCategory}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCategory('all');
+                    setSelectedSubcategory(null);
+                  }}
+                  className="ml-1 text-amber-700 hover:text-black p-0.5 rounded-full hover:bg-amber-200/60 transition-colors cursor-pointer"
+                  title="Quitar categoría"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            )}
+            {selectedSubcategory && (
+              <span className="text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shadow-sm">
+                <span>Subcategoría: {selectedSubcategory}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubcategory(null)}
+                  className="hover:text-white ml-0.5 cursor-pointer text-amber-300"
+                  title="Quitar filtro de subcategoría"
+                >
+                  ✕
+                </button>
               </span>
             )}
             {searchQuery && (
-              <span className="text-[10.5px] font-bold uppercase bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-full">
-                Búsqueda: "{searchQuery}"
+              <span className="text-[10.5px] font-bold uppercase bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                <span>Búsqueda: "{searchQuery}"</span>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="ml-1 text-blue-700 hover:text-black p-0.5 rounded-full hover:bg-blue-200/60 transition-colors cursor-pointer"
+                  title="Quitar búsqueda"
+                >
+                  <X size={10} />
+                </button>
               </span>
             )}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-            {/* Solo en stock */}
-            <label className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-[#111111] cursor-pointer select-none transition-colors">
-              <input
-                type="checkbox"
-                checked={onlyInStock}
-                onChange={(e) => setOnlyInStock(e.target.checked)}
-                className="w-3.5 h-3.5 accent-[#FFC107] rounded"
-              />
-              <span>Solo en Stock</span>
-            </label>
-
             {/* Ordenar por */}
             <div className="flex items-center gap-1.5 bg-gray-50 px-2.5 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-[#111111]">
               <SlidersHorizontal size={13} className="text-amber-500" />
@@ -1661,7 +2199,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               onClick={() => {
                 setSearchQuery('');
                 setSelectedCategory('all');
-                setOnlyInStock(false);
+                setSelectedSubcategory(null);
               }}
               className="px-4 py-2 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] text-xs font-black uppercase rounded-xl transition-all cursor-pointer shadow-sm"
             >
@@ -1671,8 +2209,15 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-2.5">
             {catalogItems.map((item, itemIdx) => {
+              const isSelectedByUser = Boolean(selectedVariantMap[item.id]);
               const activeVariant = item.variants.find(v => v.id === selectedVariantMap[item.id]) || item.coverProduct;
-              const itemImages = getItemImages(item, activeVariant);
+              
+              // Si el grupo tiene kit (grupo_tiene_kit) y no se ha seleccionado una variante individual, la portada principal es la foto unificada del kit (grupo_kit_imagen)
+              const defaultKitCoverUrl = (item.hasKit && item.kitImage) ? formatDirectImageUrl(item.kitImage) : null;
+              const itemImages = (!isSelectedByUser && defaultKitCoverUrl)
+                ? [defaultKitCoverUrl]
+                : getItemImages(item, activeVariant);
+
               const currentImageIndex = cardImageIndexMap[item.id] || 0;
               const priceUSD = activeVariant.precio_venta_ref || activeVariant.precio_mayor || 0;
               const priceBS = priceUSD * tasaBCV;
@@ -1685,19 +2230,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   key={`biker-cat-item-${item.id}-${itemIdx}`}
                   className="bg-white hover:shadow-lg border border-[#E5E7EB] hover:border-gray-300 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 group relative overflow-hidden"
                 >
-                  {/* Indicador de Stock Crítico (Solo si aplica, sin etiquetas ni íconos de categorías que distraigan) */}
-                  {currentStock <= 6 && (
+                  {/* Indicador de Stock Crítico (Solo si casi agotado, sin agotados) */}
+                  {currentStock > 0 && currentStock <= 6 && (
                     <div className="flex items-center justify-end mb-1 z-10">
-                      {currentStock <= 0 ? (
-                        <span className="text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
-                          Agotado
-                        </span>
-                      ) : (
-                        <span className="text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-[#FF5200] border border-orange-200 flex items-center gap-1 shadow-xs">
-                          <span className="animate-pulse">⏳</span>
-                          <span>Casi agotado</span>
-                        </span>
-                      )}
+                      <span className="text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-[#FF5200] border border-orange-200 flex items-center gap-1 shadow-xs">
+                        <span className="animate-pulse">⏳</span>
+                        <span>Casi agotado</span>
+                      </span>
                     </div>
                   )}
 
@@ -1711,7 +2250,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       }}
                       altText={item.title}
                       className="h-32 sm:h-36 md:h-40 max-h-40 w-full"
-                      onOpenDetail={() => openQuickView(activeVariant)}
+                      onOpenDetail={() => handleOpenCardQuickView(item)}
                       showThumbnails={true}
                     />
                   </div>
@@ -1721,7 +2260,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     <div>
                       {/* Name / Título General: Negro Amazon #111111 */}
                       <h4 
-                        onClick={() => openQuickView(activeVariant)}
+                        onClick={() => handleOpenCardQuickView(item)}
                         className="font-bold text-xs sm:text-[13px] text-[#111111] line-clamp-2 hover:text-[#FF5200] transition-colors cursor-pointer leading-tight tracking-tight"
                         title={item.title}
                       >
@@ -1734,9 +2273,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           <div className="flex items-center justify-between text-[7.5px]">
                             <span className="text-[#4B5563] font-semibold uppercase flex items-center gap-1 truncate max-w-[140px]">
                               <Boxes size={8} className="text-[#FF5200] shrink-0" />
-                              <span className="text-[#4B5563]">Modelo:</span>
+                              <span className="text-[#4B5563]">
+                                {(activeVariant.es_kit || (!isSelectedByUser && item.hasKit)) ? 'Kit:' : 'Modelo:'}
+                              </span>
                               <strong className="text-[#111111] truncate">
-                                {activeVariant.variante_nombre || activeVariant.nombre}
+                                {isSelectedByUser 
+                                  ? (activeVariant.variante_nombre || activeVariant.nombre) 
+                                  : (item.hasKit ? (item.kitName || 'Kit') : (activeVariant.variante_nombre || activeVariant.nombre))}
                               </strong>
                             </span>
                             <span className="text-[7px] font-mono text-[#4B5563] shrink-0">
@@ -1744,12 +2287,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             </span>
                           </div>
 
-                          {/* Tira de Miniaturas Visuales de Modelos Diferentes */}
+                          {/* Tira de Miniaturas Visuales de Modelos Diferentes (incluyendo miniatura del Kit con su respectiva foto) */}
                           <div className="flex items-center gap-1 overflow-x-auto py-0.5 px-0.5 custom-scrollbar">
                             {item.variants.map((v) => {
-                              const isSelected = activeVariant.id === v.id;
+                              const isSelected = isSelectedByUser && activeVariant.id === v.id;
                               const vInStock = (v.stock_disponible || 0) > 0;
-                              const vImg = formatDirectImageUrl(v.variante_imagen_miniatura || v.imagen_portada || v.variante_imagen_hd || v.imagen_url || v.link);
+                              const vImg = formatDirectImageUrl(
+                                v.es_kit 
+                                  ? (item.kitImage || v.grupo_kit_imagen || v.variante_imagen_miniatura || v.imagen_url)
+                                  : (v.variante_imagen_miniatura || v.imagen_portada || v.variante_imagen_hd || v.imagen_url || v.link)
+                              );
                               return (
                                 <button
                                   key={`v-visual-thumb-${item.id}-${v.id}`}
@@ -1762,11 +2309,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                   className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
                                     isSelected
                                       ? 'border-[#FF5200] ring-2 ring-[#FF5200]/50 scale-105 shadow-xs z-10'
-                                      : vInStock
-                                      ? 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
-                                      : 'border-gray-200 opacity-40 line-through'
+                                      : 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
                                   }`}
-                                  title={`${v.variante_nombre || v.nombre} - $${(v.precio_venta_ref || v.precio_mayor || 0).toFixed(2)} USD`}
+                                  title={`${v.variante_nombre || (v.es_kit ? (item.kitName || 'Kit') : v.nombre)} - $${(v.precio_venta_ref || v.precio_mayor || 0).toFixed(2)} USD`}
                                 >
                                   {vImg ? (
                                     <img
@@ -1779,7 +2324,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                     />
                                   ) : (
                                     <span className="text-[7px] font-black text-gray-500 uppercase text-center p-0.5 truncate leading-none">
-                                      {(v.variante_nombre || v.nombre).slice(0, 3)}
+                                      {v.es_kit ? (v.variante_nombre || item.kitName || 'KIT').slice(0, 4).toUpperCase() : (v.variante_nombre || v.nombre).slice(0, 3)}
                                     </span>
                                   )}
                                   {!vInStock && (
@@ -1795,10 +2340,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       )}
                     </div>
 
-                    {/* Price section: Naranja de Alta Conversión #FF5200 (Estilo Shein / Temu) y Secundario en Gris Oxford Neutro #4B5563 */}
+                    {/* Price section: Naranja de Alta Conversión #FF5200 y Secundario en Gris Oxford Neutro #4B5563 */}
                     <div className="pt-1.5 border-t border-gray-100 space-y-0.5 font-mono">
                       <div className="flex items-baseline gap-1 flex-wrap">
-                        {item.isGroup && item.priceMin !== item.priceMax && !selectedVariantMap[item.id] ? (
+                        {item.hasKit && !isSelectedByUser ? (
+                          <>
+                            <span className="text-[8px] font-bold text-[#4B5563] uppercase">Desde</span>
+                            <span className="text-base sm:text-lg font-black text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} </span>
+                            <span className="text-[10px] font-bold text-[#FF5200]">USD</span>
+                          </>
+                        ) : item.isGroup && item.priceMin !== item.priceMax && !isSelectedByUser ? (
                           <>
                             <span className="text-[8px] font-bold text-[#4B5563] uppercase">Desde</span>
                             <span className="text-base sm:text-lg font-black text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} - ${item.priceMax.toFixed(2)} </span>
@@ -1812,7 +2363,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         )}
                       </div>
                       <div className="text-[10px] sm:text-[10.5px] font-medium text-[#4B5563] leading-tight">
-                        ≈ Bs. {priceBS.toFixed(2)}
+                        ≈ Bs. {((item.hasKit && !isSelectedByUser ? item.priceMin : priceUSD) * tasaBCV).toFixed(2)}
                       </div>
                     </div>
 
@@ -1820,17 +2371,38 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     <div className="pt-1.5 space-y-1">
                       <button
                         type="button"
-                        onClick={() => openQuickView(activeVariant)}
+                        onClick={() => {
+                          if (isSelectedByUser) {
+                            handleAddToCart(activeVariant, 1);
+                          } else {
+                            handleOpenCardQuickView(item);
+                          }
+                        }}
                         disabled={!isVariantInStock}
                         className="w-full py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 shadow-xs bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                       >
-                        <ShoppingCart size={11} className="stroke-[2.5]" />
-                        <span>Agregar</span>
+                        {isJustAdded ? (
+                          <>
+                            <Check size={11} className="stroke-[3] text-emerald-800" />
+                            <span>¡Agregado!</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShoppingCart size={11} className="stroke-[2.5]" />
+                            <span>Agregar</span>
+                          </>
+                        )}
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => openQuickView(activeVariant)}
+                        onClick={() => {
+                          if (isSelectedByUser) {
+                            handleBuyNow(activeVariant);
+                          } else {
+                            handleOpenCardQuickView(item);
+                          }
+                        }}
                         disabled={!isVariantInStock}
                         className="w-full py-1.5 bg-amber-50 hover:bg-amber-100/80 border border-amber-300 text-[#111111] rounded-lg text-[9px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                       >
@@ -1865,7 +2437,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     isAdmin={isAdmin}
                     onOpenEditor={handleOpenTextEditorFor}
                     as="h3"
-                    className="font-anton text-base uppercase tracking-wider text-[#111111] leading-none"
+                    className="font-extrabold text-base uppercase tracking-tight text-[#111111] leading-none"
                   />
                   <p className="text-[9.5px] text-[#555555] font-bold uppercase mt-0.5">
                     {cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto seleccionado' : 'productos seleccionados'}
@@ -1891,7 +2463,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   <div className="w-16 h-16 rounded-2xl bg-gray-100 text-gray-400 flex items-center justify-center mx-auto">
                     <ShoppingBag size={28} />
                   </div>
-                  <p className="font-anton text-base uppercase text-[#111111]">Tu carrito está vacío</p>
+                  <p className="font-extrabold text-base uppercase tracking-tight text-[#111111]">Tu carrito está vacío</p>
                   <p className="text-xs text-[#555555] max-w-xs mx-auto">
                     Explora nuestro catálogo de accesorios para motos para agregar productos a tu compra.
                   </p>
@@ -1985,8 +2557,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     <span className="font-bold text-[#4B5563]">Bs. {cartTotals.totalBS.toFixed(2)}</span>
                   </div>
                   <div className="flex items-baseline justify-between pt-2 border-t border-gray-200">
-                    <span className="font-anton text-sm uppercase text-[#111111]">Total a Pagar:</span>
-                    <span className="font-anton text-2xl text-[#FF5200]">${cartTotals.totalUSD.toFixed(2)} USD</span>
+                    <span className="font-bold text-sm uppercase text-[#111111]">Total a Pagar:</span>
+                    <span className="font-extrabold text-2xl tracking-tight text-[#FF5200]">${cartTotals.totalUSD.toFixed(2)} USD</span>
                   </div>
                 </div>
 
@@ -2037,7 +2609,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       isAdmin={isAdmin}
                       onOpenEditor={handleOpenTextEditorFor}
                       as="h3"
-                      className="font-anton text-base sm:text-lg uppercase tracking-wider text-[#111111] leading-none"
+                      className="font-extrabold text-base sm:text-lg uppercase tracking-tight text-[#111111] leading-none"
                     />
                     <EditableStoreText
                       textKey="checkoutModalSubtitle"
@@ -2235,7 +2807,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         }
                         setCheckoutStep(2);
                       }}
-                      className="w-full py-3 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] font-anton tracking-wider text-sm uppercase rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
+                      className="w-full py-3 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] font-bold tracking-normal text-sm uppercase rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
                     >
                       <span>Siguiente: Método de Pago</span>
                       <ArrowRight size={16} />
@@ -2622,7 +3194,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     <button
                       type="submit"
                       disabled={isSubmittingOrder || isUploadingReceipt}
-                      className={`w-full py-3 disabled:opacity-50 text-[#111111] font-anton tracking-wider text-sm sm:text-base uppercase rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all ${
+                      className={`w-full py-3 disabled:opacity-50 text-[#111111] font-bold tracking-normal text-sm sm:text-base uppercase rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all ${
                         tipoConfirmacion === 'comprobante'
                           ? 'bg-emerald-400 hover:bg-emerald-300 shadow-emerald-500/20'
                           : 'bg-[#FFC107] hover:bg-[#ffb300] shadow-amber-400/20'
@@ -2702,7 +3274,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     : 'bg-amber-50 text-amber-800 border-amber-300'
                 }`}
               />
-              <h3 className="font-anton text-2xl sm:text-3xl uppercase tracking-wider text-[#111111]">
+              <h3 className="font-extrabold text-2xl sm:text-3xl uppercase tracking-tight text-[#111111]">
                 #{completedOrder.numero_pedido}
               </h3>
               <EditableStoreText
@@ -2758,7 +3330,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <button
                 type="button"
                 onClick={() => handleSendToWhatsApp(completedOrder)}
-                className={`w-full py-3.5 font-anton uppercase text-sm rounded-2xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95 transition-all ${
+                className={`w-full py-3.5 font-bold uppercase text-sm rounded-2xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95 transition-all ${
                   completedOrder.tipo_confirmacion === 'comprobante_automatico'
                     ? 'bg-gray-100 hover:bg-gray-200 text-[#111111] border border-gray-300'
                     : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/25'
@@ -2789,18 +3361,29 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* ========================================================= */}
       {quickViewProduct && (() => {
         const activeQV = quickViewActiveVariant || quickViewProduct;
-        const qvVariants = activeQV.grupo_id 
-          ? sourceProducts.filter(p => p.grupo_id === activeQV.grupo_id).sort((a, b) => {
-              if (a.es_principal_grupo && !b.es_principal_grupo) return -1;
-              if (!a.es_principal_grupo && b.es_principal_grupo) return 1;
-              return (a.variante_nombre || a.nombre).localeCompare(b.variante_nombre || b.nombre);
-            })
-          : [];
+        // Obtener el item del catálogo correspondiente para reutilizar la lista unificada de variantes y kit
+        const parentCatalogItem = activeQV.grupo_id 
+          ? catalogItems.find(it => it.groupId === activeQV.grupo_id || it.id === activeQV.grupo_id)
+          : null;
+
+        const qvVariants: Producto[] = (parentCatalogItem 
+          ? parentCatalogItem.variants 
+          : (activeQV.grupo_id 
+              ? sourceProducts.filter(p => p.grupo_id === activeQV.grupo_id && (Number(p.stock_disponible) || 0) > 0).sort((a, b) => {
+                  if (a.es_principal_grupo && !b.es_principal_grupo) return -1;
+                  if (!a.es_principal_grupo && b.es_principal_grupo) return 1;
+                  return (a.variante_nombre || a.nombre).localeCompare(b.variante_nombre || b.nombre);
+                })
+              : [activeQV])
+        ).filter(v => (Number(v.stock_disponible) || 0) > 0);
+
         const qvImages = getItemImages(
-          {
+          parentCatalogItem || {
             isGroup: Boolean(activeQV.grupo_id),
             coverProduct: quickViewProduct,
-            variants: qvVariants.length > 0 ? qvVariants : [activeQV]
+            variants: qvVariants.length > 0 ? qvVariants : [activeQV],
+            hasKit: Boolean(activeQV.grupo_tiene_kit),
+            kitImage: activeQV.grupo_kit_imagen
           },
           activeQV
         );
@@ -2842,7 +3425,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               {/* Columna Derecha: Información y Selector Visual de Variantes */}
               <div className="w-full md:w-1/2 p-5 sm:p-6 flex flex-col justify-between space-y-4 pr-12 sm:pr-14">
                 <div className="space-y-3">
-                  <h3 className="font-anton text-lg sm:text-2xl uppercase tracking-wide text-[#111111] leading-tight">
+                  <h3 className="font-extrabold text-lg sm:text-2xl uppercase tracking-tight text-[#111111] leading-tight">
                     {activeQV.grupo_nombre || activeQV.nombre}
                   </h3>
 
@@ -2852,19 +3435,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       <div className="flex items-center justify-between text-[9.5px]">
                         <span className="text-[#555555] font-black uppercase flex items-center gap-1.5">
                           <Boxes size={12} className="text-amber-500" />
-                          <span>Modelo Seleccionado:</span>
+                          <span>{activeQV.es_kit ? 'Kit Seleccionado:' : 'Modelo Seleccionado:'}</span>
                           <strong className="text-[#111111] text-[11px] underline">
                             {activeQV.variante_nombre || activeQV.nombre}
                           </strong>
                         </span>
                       </div>
 
-                      {/* Miniaturas de variantes para QuickView */}
+                      {/* Miniaturas de variantes para QuickView (incluyendo la miniatura del Kit con su respectiva foto) */}
                       <div className="flex items-center gap-2 overflow-x-auto py-1 px-0.5 custom-scrollbar">
                         {qvVariants.map((v) => {
                           const isSelected = activeQV.id === v.id;
                           const vStock = (v.stock_disponible || 0) > 0;
-                          const vImg = formatDirectImageUrl(v.variante_imagen_miniatura || v.imagen_portada || v.variante_imagen_hd || v.imagen_url || v.link);
+                          const vImg = formatDirectImageUrl(
+                            v.es_kit 
+                              ? (parentCatalogItem?.kitImage || v.grupo_kit_imagen || v.variante_imagen_miniatura || v.imagen_url)
+                              : (v.variante_imagen_miniatura || v.imagen_portada || v.variante_imagen_hd || v.imagen_url || v.link)
+                          );
                           return (
                             <button
                               key={`qv-visual-var-${v.id}`}
@@ -2877,11 +3464,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
                                 isSelected
                                   ? 'border-[#FFC107] ring-2 ring-[#FFC107]/50 scale-105 shadow-sm z-10'
-                                  : vStock
-                                  ? 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
-                                  : 'border-gray-200 opacity-40 line-through'
+                                  : 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
                               }`}
-                              title={v.variante_nombre || v.nombre}
+                              title={v.variante_nombre || (v.es_kit ? 'Kit' : v.nombre)}
                             >
                               {vImg ? (
                                 <img
@@ -2894,12 +3479,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                 />
                               ) : (
                                 <span className="text-[8px] font-black text-gray-500 uppercase text-center p-0.5 truncate leading-none">
-                                  {(v.variante_nombre || v.nombre).slice(0, 4)}
-                                </span>
-                              )}
-                              {!vStock && (
-                                <span className="absolute inset-0 bg-white/70 flex items-center justify-center text-rose-600 text-[9px] font-black">
-                                  ✕
+                                  {v.es_kit ? 'KIT' : (v.variante_nombre || v.nombre).slice(0, 4)}
                                 </span>
                               )}
                             </button>
@@ -2919,20 +3499,15 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </p>
                   </div>
 
-                  {/* Stock info con urgencia inteligente */}
-                  <div>
-                    {!qvInStock ? (
-                      <span className="text-xs font-bold text-rose-600 flex items-center gap-1">
-                        <AlertCircle size={13} />
-                        Agotado temporalmente
-                      </span>
-                    ) : activeQV.stock_disponible <= 6 ? (
+                  {/* Stock info con urgencia inteligente (solo si casi agotado) */}
+                  {activeQV.stock_disponible > 0 && activeQV.stock_disponible <= 6 && (
+                    <div>
                       <span className="text-[11px] font-bold text-[#FF5722] flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl inline-flex">
                         <span className="animate-pulse">⏳</span>
                         <span>Casi agotado</span>
                       </span>
-                    ) : null}
-                  </div>
+                    </div>
+                  )}
 
                   {activeQV.palabras_clave && (
                     <p className="text-[11px] text-[#555555] pt-1 line-clamp-3">
@@ -3000,7 +3575,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     )}
                   </button>
 
-                  {/* Botón Secundario: Ir al Carrito */}
+                  {/* Botón Secundario: Ir al Carrito y Finalizar Compra */}
                   <button
                     type="button"
                     onClick={() => {
@@ -3011,7 +3586,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     className="w-full py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-[#FF5200] rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <ShoppingCart size={13} className="text-[#FF5200]" />
-                    <span>Ir al Carrito ({cartTotals.totalUnits})</span>
+                    <span>Ir al Carrito y Finalizar Compra ({cartTotals.totalUnits})</span>
                     <ArrowRight size={12} className="text-[#FF5200]" />
                   </button>
                 </div>
@@ -3027,7 +3602,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       <footer className="bg-[#0F1115] border-t border-gray-800 py-10 px-4 sm:px-6 text-gray-400 text-xs">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
           <div>
-            <h4 className="font-anton text-lg tracking-wider uppercase text-[#FFC107]">
+            <h4 className="font-extrabold text-lg tracking-tight uppercase text-[#FFC107]">
               Lo que los bikers quieren
             </h4>
             <div className="mt-0.5">
@@ -3076,7 +3651,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           </div>
           
           <div className="flex flex-col text-left leading-tight">
-            <span className="font-anton tracking-wider text-xs sm:text-sm uppercase text-white whitespace-nowrap">
+            <span className="font-bold tracking-tight text-xs sm:text-sm uppercase text-white whitespace-nowrap">
               Ir al Carrito
             </span>
             <span className="text-[10px] sm:text-[11px] font-mono font-black text-white/90 whitespace-nowrap">

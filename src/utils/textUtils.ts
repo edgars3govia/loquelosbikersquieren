@@ -126,3 +126,100 @@ export const getProductCategoryNames = (product: { categoria?: string; categoria
   const keys = getProductCategoryKeys(product);
   return keys.map((k) => formatCategoryDisplay(k)).filter(Boolean);
 };
+
+/**
+ * Returns a canonical key for comparing or deduplicating subcategories:
+ * lowercased, single-spaced, without accents.
+ * E.g., "  FAROS   LED  " -> "faros led"
+ */
+export const getSubcategoryKey = (subcategory: string = ''): string => {
+  if (!subcategory || typeof subcategory !== 'string') return '';
+  return removeAccents(subcategory.trim().replace(/\s+/g, ' ')).toLowerCase();
+};
+
+/**
+ * Standardizes a subcategory display name in Title Case without accents.
+ * E.g., "FAROS LED", "faros led" -> "Faros Led"
+ */
+export const formatSubcategoryDisplay = (subcategory: string = ''): string => {
+  const key = getSubcategoryKey(subcategory);
+  if (!key || key === 'sin subcategoria' || key === 'sin categoria') return '';
+  return key
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+/**
+ * Extracts an array of lowercase canonical subcategory keys from a product.
+ * Handles both product.subcategorias (array of strings) and product.subcategoria (string, which can be comma/slash/pipe separated).
+ */
+export const getProductSubcategoryKeys = (
+  product: { subcategoria?: string; subcategorias?: string[] } | null | undefined
+): string[] => {
+  if (!product) return [];
+  const keysSet = new Set<string>();
+
+  // Check array of subcategories
+  if (Array.isArray(product.subcategorias)) {
+    product.subcategorias.forEach((s) => {
+      if (typeof s === 'string') {
+        const parts = s.split(/[,/|;]+/);
+        parts.forEach((p) => {
+          const k = getSubcategoryKey(p);
+          if (k && k !== 'sin subcategoria' && k !== 'sin categoria') {
+            keysSet.add(k);
+          }
+        });
+      }
+    });
+  }
+
+  // Check single subcategoria string
+  if (typeof product.subcategoria === 'string' && product.subcategoria.trim()) {
+    const parts = product.subcategoria.split(/[,/|;]+/);
+    parts.forEach((p) => {
+      const k = getSubcategoryKey(p);
+      if (k && k !== 'sin subcategoria' && k !== 'sin categoria') {
+        keysSet.add(k);
+      }
+    });
+  }
+
+  return Array.from(keysSet);
+};
+
+/**
+ * Extracts an array of standardized Title Case subcategory display names from a product.
+ */
+export const getProductSubcategoryNames = (
+  product: { subcategoria?: string; subcategorias?: string[] } | null | undefined
+): string[] => {
+  if (!product) return [];
+  const namesMap = new Map<string, string>();
+
+  const extractRaw = (raw: string) => {
+    const parts = raw.split(/[,/|;]+/);
+    parts.forEach((p) => {
+      const clean = removeAccents(p.trim());
+      const k = getSubcategoryKey(clean);
+      if (k && k !== 'sin subcategoria' && k !== 'sin categoria' && !namesMap.has(k)) {
+        namesMap.set(k, formatSubcategoryDisplay(clean));
+      }
+    });
+  };
+
+  if (Array.isArray(product.subcategorias)) {
+    product.subcategorias.forEach((s) => {
+      if (typeof s === 'string') extractRaw(s);
+    });
+  }
+
+  if (typeof product.subcategoria === 'string' && product.subcategoria.trim()) {
+    extractRaw(product.subcategoria);
+  }
+
+  return Array.from(namesMap.values());
+};
+

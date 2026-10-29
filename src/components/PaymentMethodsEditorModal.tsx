@@ -177,7 +177,7 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
               <CreditCard size={18} />
             </div>
             <div>
-              <h3 className="font-anton text-base sm:text-xl uppercase tracking-wider text-white leading-none">
+              <h3 className="font-extrabold text-base sm:text-xl uppercase tracking-tight text-white leading-none">
                 Configurar Métodos y Datos de Pago
               </h3>
               <p className="text-[10px] sm:text-xs text-amber-300 font-bold uppercase mt-0.5">
@@ -420,7 +420,7 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
               type="button"
               onClick={handleSave}
               disabled={isSaving}
-              className="px-5 py-2.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-black font-anton tracking-wider uppercase text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/25 cursor-pointer active:scale-95 transition-all"
+              className="px-5 py-2.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-black font-bold uppercase text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/25 cursor-pointer active:scale-95 transition-all"
             >
               {savedSuccess ? (
                 <>

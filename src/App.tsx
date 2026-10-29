@@ -69,7 +69,7 @@ export default function App() {
                   <ShieldCheck size={16} className="text-amber-600" />
                 </div>
                 <div>
-                  <h4 className="font-anton text-base uppercase text-[#111111] tracking-wider">Acceso Dueño</h4>
+                  <h4 className="font-extrabold text-base uppercase text-[#111111] tracking-tight">Acceso Dueño</h4>
                   <p className="text-[10px] text-[#555555]">Introduce el PIN de edición</p>
                 </div>
               </div>

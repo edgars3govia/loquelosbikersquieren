@@ -338,7 +338,7 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
               <Edit3 size={20} />
             </div>
             <div>
-              <h3 className="font-anton text-lg sm:text-xl uppercase tracking-wider text-white leading-none">
+              <h3 className="font-extrabold text-lg sm:text-xl uppercase tracking-tight text-white leading-none">
                 Editor de Textos y Aclaratorias de la Tienda
               </h3>
               <p className="text-[10px] sm:text-xs text-slate-400 font-bold mt-0.5">
