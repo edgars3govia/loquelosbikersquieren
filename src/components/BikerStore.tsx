@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   ShoppingBag, 
   ShoppingCart, 
@@ -57,6 +57,7 @@ import { StoreTextEditorModal, DEFAULT_STORE_TEXTS } from './StoreTextEditorModa
 import { EditableStoreText } from './EditableStoreText';
 import { PaymentMethodsEditorModal } from './PaymentMethodsEditorModal';
 import { DEFAULT_PAYMENT_METHODS } from '../constants/defaultPaymentMethods';
+import { fetchTasaOficialBCV, getCachedTasaBCV, DEFAULT_TASA_FALLBACK } from '../lib/tasaService';
 
 // ============================================================================
 // COMPONENTE: CARRUSEL DE IMÁGENES MULTI-FOTO CON FLECHAS, SWIPE Y MINIATURAS
@@ -142,7 +143,7 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className={`relative w-full ${className} bg-[#07090e] rounded-xl overflow-hidden flex items-center justify-center cursor-pointer group/img transition-transform`}
+        className={`relative w-full ${className} bg-[#FAFAFA] rounded-lg overflow-hidden flex items-center justify-center cursor-pointer group/img transition-transform`}
       >
         {currentImage ? (
           <img
@@ -154,7 +155,7 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
             }}
           />
         ) : (
-          <div className="flex flex-col items-center gap-1 text-slate-600">
+          <div className="flex flex-col items-center gap-1 text-gray-400">
             <Package size={28} />
             <span className="text-[8.5px] font-bold uppercase">Sin foto</span>
           </div>
@@ -162,16 +163,16 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
 
         {/* Indicador flotante Ver Detalle al pasar el cursor */}
         {onOpenDetail && (
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-            <span className="px-2 py-0.5 bg-black/80 text-amber-300 rounded-md text-[8.5px] font-black uppercase flex items-center gap-1 border border-amber-400/30 shadow-md">
-              <Eye size={11} /> Ver Detalle
+          <div className="absolute inset-0 bg-black/25 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+            <span className="px-2.5 py-1 bg-[#111111]/90 text-white rounded-md text-[8.5px] font-bold uppercase flex items-center gap-1 shadow-sm">
+              <Eye size={11} className="text-[#FFC107]" /> Ver Detalle
             </span>
           </div>
         )}
 
         {/* Contador de Fotos (ej: 1/4) - Solo si hay más de 1 foto */}
         {validImages.length > 1 && (
-          <div className="absolute top-1.5 right-1.5 bg-black/80 backdrop-blur-sm text-amber-300 border border-amber-400/30 px-1 py-0.5 rounded text-[7.5px] font-mono font-black z-10 pointer-events-none shadow-sm">
+          <div className="absolute top-1.5 right-1.5 bg-black/75 text-white px-1.5 py-0.5 rounded text-[8px] font-mono font-bold z-10 pointer-events-none shadow-xs">
             {safeIndex + 1}/{validImages.length}
           </div>
         )}
@@ -182,7 +183,7 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
             type="button"
             onClick={handlePrev}
             aria-label="Foto anterior"
-            className="absolute left-1 top-1/2 -translate-y-1/2 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/75 hover:bg-black/95 text-white hover:text-amber-300 flex items-center justify-center border border-white/20 hover:border-amber-400/80 shadow-md cursor-pointer z-20 transition-all active:scale-90 opacity-90 sm:opacity-0 sm:group-hover/img:opacity-100"
+            className="absolute left-1 top-1/2 -translate-y-1/2 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white/95 hover:bg-white text-[#111111] hover:text-[#FF5722] flex items-center justify-center border border-gray-200 shadow-md cursor-pointer z-20 transition-all active:scale-90 opacity-90 sm:opacity-0 sm:group-hover/img:opacity-100"
           >
             <ChevronLeft size={14} strokeWidth={2.5} />
           </button>
@@ -194,7 +195,7 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
             type="button"
             onClick={handleNext}
             aria-label="Siguiente foto"
-            className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-black/75 hover:bg-black/95 text-white hover:text-amber-300 flex items-center justify-center border border-white/20 hover:border-amber-400/80 shadow-md cursor-pointer z-20 transition-all active:scale-90 opacity-90 sm:opacity-0 sm:group-hover/img:opacity-100"
+            className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white/95 hover:bg-white text-[#111111] hover:text-[#FF5722] flex items-center justify-center border border-gray-200 shadow-md cursor-pointer z-20 transition-all active:scale-90 opacity-90 sm:opacity-0 sm:group-hover/img:opacity-100"
           >
             <ChevronRight size={14} strokeWidth={2.5} />
           </button>
@@ -214,10 +215,10 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
                   e.stopPropagation();
                   onIndexChange(tIdx);
                 }}
-                className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-black/60 ${
+                className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 ${
                   isSelectedThumb
-                    ? 'border-amber-400 ring-1 ring-amber-400/50 scale-105 opacity-100 shadow-sm'
-                    : 'border-white/10 opacity-55 hover:opacity-100 hover:border-white/40'
+                    ? 'border-[#FFC107] ring-1 ring-[#FFC107] scale-105 opacity-100 shadow-xs'
+                    : 'border-gray-200 opacity-60 hover:opacity-100 hover:border-gray-400'
                 }`}
                 title={`Ver foto ${tIdx + 1}`}
               >
@@ -319,24 +320,57 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   onExitToAdmin,
   isAdmin = true
 }) => {
-  // Exchange rate fallback if not provided in props
-  const [syncedTasaBCV, setSyncedTasaBCV] = useState<number>(() => {
+  // Exchange rate: Live official BCV rate (ve.dolarapi.com) + Cache + Firestore sync
+  const [liveTasaBCV, setLiveTasaBCV] = useState<number>(() => {
+    const cached = getCachedTasaBCV();
+    if (cached > 1) return cached;
+    if (financialSettings.tasaBCV > 1) return financialSettings.tasaBCV;
+    return DEFAULT_TASA_FALLBACK;
+  });
+  const [isFetchingTasa, setIsFetchingTasa] = useState<boolean>(false);
+  const [_tasaFecha, setTasaFecha] = useState<string | null>(() => {
     try {
-      const saved = localStorage.getItem('biker_store_tasa_bcv');
-      return saved ? parseFloat(saved) || 0 : 0;
+      return localStorage.getItem('biker_store_tasa_bcv_fecha') || null;
     } catch {
-      return 0;
+      return null;
     }
   });
+
+  // Consulta automática en tiempo real de la tasa oficial del BCV al cargar la tienda
+  useEffect(() => {
+    let isMounted = true;
+    const loadLiveRate = async () => {
+      setIsFetchingTasa(true);
+      try {
+        const result = await fetchTasaOficialBCV();
+        if (isMounted && result.tasa > 1) {
+          setLiveTasaBCV(result.tasa);
+          if (result.fechaActualizacion) {
+            setTasaFecha(result.fechaActualizacion);
+          }
+        }
+      } catch (err) {
+        console.warn('Error al consultar tasa oficial BCV:', err);
+      } finally {
+        if (isMounted) setIsFetchingTasa(false);
+      }
+    };
+
+    loadLiveRate();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const [syncedTasaBCV, setSyncedTasaBCV] = useState<number>(0);
 
   useEffect(() => {
     try {
       const unsub = onSnapshot(doc(db, 'configuracion', 'financiera'), (snap) => {
         if (snap.exists()) {
           const data = snap.data();
-          if (data && typeof data.tasaBCV === 'number' && data.tasaBCV > 0) {
+          if (data && typeof data.tasaBCV === 'number' && data.tasaBCV > 1) {
             setSyncedTasaBCV(data.tasaBCV);
-            try { localStorage.setItem('biker_store_tasa_bcv', String(data.tasaBCV)); } catch {}
           }
         }
       }, () => {});
@@ -344,7 +378,33 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     } catch {}
   }, []);
 
-  const tasaBCV = financialSettings.tasaBCV > 0 ? financialSettings.tasaBCV : (syncedTasaBCV > 0 ? syncedTasaBCV : 1);
+  // Tasa final efectiva: se calcula siempre con la tasa oficial real del día
+  const tasaBCV = liveTasaBCV > 1
+    ? liveTasaBCV
+    : (syncedTasaBCV > 1 ? syncedTasaBCV : (financialSettings.tasaBCV > 1 ? financialSettings.tasaBCV : DEFAULT_TASA_FALLBACK));
+
+  // Smart Sticky Header: desaparece al scrollear hacia abajo, reaparece de inmediato al subir
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const lastScrollYRef = useRef(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      if (currentScrollY < 50) {
+        setIsHeaderVisible(true);
+      } else if (currentScrollY > lastScrollYRef.current + 8) {
+        // Scrolling down: ocultar barra
+        setIsHeaderVisible(false);
+      } else if (currentScrollY < lastScrollYRef.current - 8) {
+        // Scrolling up: reaparecer de inmediato
+        setIsHeaderVisible(true);
+      }
+      lastScrollYRef.current = currentScrollY;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Search & Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -1201,221 +1261,235 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#07090e] text-slate-100 font-sans selection:bg-amber-500 selection:text-black pb-[max(2rem,env(safe-area-inset-bottom))]">
+    <div className="min-h-screen bg-white text-[#111111] font-sans selection:bg-[#FFC107] selection:text-black pb-[max(2rem,env(safe-area-inset-bottom))] pt-[130px] sm:pt-[138px]">
       {/* ========================================================= */}
-      {/* TOP ANNOUNCEMENT BAR (OPTIMIZADA PARA MÓVIL Y NOTCH)       */}
+      {/* SMART STICKY HEADER (UNIFICADO EN NEGRO PURO #000000)      */}
       {/* ========================================================= */}
-      <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-black px-3 py-2 pt-[max(1.1rem,calc(env(safe-area-inset-top)+0.4rem))] text-[10px] sm:text-xs font-black tracking-wide flex flex-wrap items-center justify-between gap-2 shadow-md">
-        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar">
-          <span className="flex items-center gap-1 uppercase">
-            <Truck size={14} className="stroke-[2.5]" />
-            <EditableStoreText
-              textKey="topAnnouncement"
-              value={getText('topAnnouncement')}
-              isAdmin={isAdmin}
-              onOpenEditor={handleOpenTextEditorFor}
-              as="span"
-              pencilClassName="text-black"
-            />
-          </span>
-          <span className="opacity-40">|</span>
-          <span className="font-mono bg-black/10 px-1.5 py-0.5 rounded">
-            💵 Tasa Oficial BCV: Bs. {tasaBCV.toFixed(2)}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={handleCopyStoreLink}
-            className="hidden sm:flex items-center gap-1 bg-black/20 hover:bg-black/30 px-2 py-0.5 rounded text-[9.5px] uppercase font-black transition-colors cursor-pointer"
-            title="Copiar enlace para compartir esta tienda con clientes"
-          >
-            {copiedLink ? <Check size={11} /> : <Share2 size={11} />}
-            <span>{copiedLink ? '¡Enlace Copiado!' : 'Compartir Tienda'}</span>
-          </button>
-
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => {
-                setTextEditorInitialKey(null);
-                setIsTextEditorOpen(true);
-              }}
-              className="bg-black/50 hover:bg-black/70 text-amber-300 border border-amber-400/40 px-2 py-0.5 rounded text-[9.5px] uppercase font-black transition-colors cursor-pointer flex items-center gap-1 shadow-sm"
-              title="Editar todos los textos fijos, títulos y aclaratorias del e-commerce"
-            >
-              <Edit3 size={11} className="text-amber-400" />
-              <span>Editar Textos</span>
-            </button>
-          )}
-
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setIsCategoryModalOpen(true)}
-              className="bg-black/40 hover:bg-black/60 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded text-[9.5px] uppercase font-black transition-colors cursor-pointer flex items-center gap-1"
-              title="Configurar qué categorías se muestran a los clientes"
-            >
-              <Sliders size={11} className="text-amber-400" />
-              <span className="hidden sm:inline">Categorías Visibles</span>
-              <span className="sm:hidden">Categorías</span>
-            </button>
-          )}
-
-          {isAdmin && onExitToAdmin && (
-            <button
-              type="button"
-              onClick={onExitToAdmin}
-              className="bg-black text-amber-400 hover:text-white px-2 py-0.5 rounded text-[9.5px] uppercase font-black transition-colors cursor-pointer flex items-center gap-1"
-            >
-              <ArrowLeft size={11} />
-              <span>Volver</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ========================================================= */}
-      {/* MAIN STORE HEADER                                         */}
-      {/* ========================================================= */}
-      <header className="sticky top-0 z-40 bg-[#0a0d14]/95 backdrop-blur-xl border-b border-amber-500/20 shadow-2xl">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between gap-3 sm:gap-4">
-{/* LOGO PRINCIPAL */}
-    <div className="flex items-center gap-3 shrink-0">
-      <div className="flex items-center">
-        <img src="/logo png.png" alt="Lo que los bikers quieren" className="h-16 sm:h-20 w-auto object-contain drop-shadow-sm" />
-      </div>
-      <div className="hidden sm:block">
-        <EditableStoreText textKey="headerSubtitle" value={getText('headerSubtitle')} isAdmin={isAdmin} onOpenEditor={handleOpenTextEditorFor} as="p" className="text-[8.5px] text-slate-400 font-bold uppercase tracking-wider" />
-      </div>
-    </div>
-
-          {/* OMNI SEARCH BAR (ESTILO AMAZON / MERCADO LIBRE) */}
-          <div className="flex-1 max-w-xl hidden md:block">
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar cascos, guantes, luces, alarmas, accesorios para motos..."
-                className="w-full bg-[#121622] border-2 border-white/10 focus:border-amber-400/80 rounded-2xl pl-11 pr-10 py-2.5 text-xs sm:text-sm text-white placeholder:text-slate-500 outline-none transition-all shadow-inner font-medium"
+      <div 
+        className={`fixed top-0 left-0 right-0 z-40 transition-transform duration-300 ease-in-out bg-[#000000] shadow-md ${
+          isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+        }`}
+      >
+        {/* TOP ANNOUNCEMENT BAR (DENTRO DEL CONTENEDOR UNIFICADO #000000) */}
+        <div className="bg-[#000000] text-white px-3 sm:px-6 py-1.5 pt-[max(0.6rem,calc(env(safe-area-inset-top)+0.2rem))] text-[10px] sm:text-xs font-semibold tracking-wide flex flex-wrap items-center justify-between gap-2 border-b border-white/10">
+          <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar">
+            <span className="flex items-center gap-1 uppercase font-bold text-gray-200">
+              <Truck size={13} className="text-[#FFC107] stroke-[2.5]" />
+              <EditableStoreText
+                textKey="topAnnouncement"
+                value={getText('topAnnouncement')}
+                isAdmin={isAdmin}
+                onOpenEditor={handleOpenTextEditorFor}
+                as="span"
+                pencilClassName="text-white"
               />
-              <Search size={16} className="absolute left-4 text-amber-400 pointer-events-none" />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 text-slate-400 hover:text-white p-1"
-                >
-                  <X size={14} />
-                </button>
+            </span>
+            <span className="opacity-30 text-gray-500">|</span>
+            <span className="font-mono bg-white/10 text-white px-2 py-0.5 rounded border border-white/15 flex items-center gap-1 font-bold text-[10.5px]">
+              💵 Tasa Oficial BCV: <strong className="text-[#FFC107]">Bs. {formatVES(tasaBCV)}</strong>
+              {isFetchingTasa && (
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#FFC107] animate-pulse" title="Sincronizando tasa oficial en vivo..." />
               )}
-            </div>
+            </span>
           </div>
 
-          {/* RIGHT ACTION BUTTONS */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* TOP BAR CART BUTTON */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setIsCartOpen(true)}
-              className="relative flex items-center gap-2.5 bg-[#0e121b] hover:bg-[#151b27] text-white border-2 border-amber-400 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl font-black text-xs uppercase shadow-lg shadow-amber-400/20 active:scale-95 transition-all cursor-pointer"
+              onClick={handleCopyStoreLink}
+              className="hidden sm:flex items-center gap-1 bg-white/10 hover:bg-white/20 text-gray-200 px-2.5 py-0.5 rounded text-[9.5px] uppercase font-bold transition-colors cursor-pointer"
+              title="Copiar enlace para compartir esta tienda con clientes"
             >
-              <div className="relative">
-                <ShoppingCart size={18} className="text-amber-400 stroke-[2.5]" />
-                {cartTotals.totalUnits > 0 && (
-                  <span className="absolute -top-2.5 -right-2.5 min-w-[19px] h-[19px] px-1 rounded-full bg-red-600 text-white text-[9.5px] font-black flex items-center justify-center border-2 border-[#0e121b] animate-scale-up">
-                    {cartTotals.totalUnits}
-                  </span>
-                )}
-              </div>
-              <div className="text-left hidden sm:block leading-tight">
-                <span className="text-[9.5px] block text-amber-300 font-black uppercase tracking-wider">Carrito</span>
-                <span className="font-mono font-black text-xs text-white">${cartTotals.totalUSD.toFixed(2)}</span>
-              </div>
+              {copiedLink ? <Check size={11} className="text-emerald-400" /> : <Share2 size={11} />}
+              <span>{copiedLink ? '¡Enlace Copiado!' : 'Compartir Tienda'}</span>
             </button>
-          </div>
-        </div>
 
-        {/* MOBILE SEARCH BAR */}
-        <div className="px-3 pb-2.5 md:hidden">
-          <div className="relative flex items-center">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar accesorios para motos, cascos, luces, guantes..."
-              className="w-full bg-[#121622] border border-white/10 focus:border-amber-400 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder:text-slate-500 outline-none"
-            />
-            <Search size={14} className="absolute left-3 text-amber-400 pointer-events-none" />
-            {searchQuery && (
+            {isAdmin && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 text-slate-400 p-1"
+                onClick={() => {
+                  setTextEditorInitialKey(null);
+                  setIsTextEditorOpen(true);
+                }}
+                className="bg-white/10 hover:bg-white/20 text-[#FFC107] border border-[#FFC107]/40 px-2.5 py-0.5 rounded text-[9.5px] uppercase font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                title="Editar todos los textos fijos, títulos y aclaratorias del e-commerce"
               >
-                <X size={12} />
+                <Edit3 size={11} className="text-[#FFC107]" />
+                <span>Editar Textos</span>
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsCategoryModalOpen(true)}
+                className="bg-white/10 hover:bg-white/20 text-[#FFC107] border border-[#FFC107]/30 px-2 py-0.5 rounded text-[9.5px] uppercase font-bold transition-colors cursor-pointer flex items-center gap-1"
+                title="Configurar qué categorías se muestran a los clientes"
+              >
+                <Sliders size={11} className="text-[#FFC107]" />
+                <span className="hidden sm:inline">Categorías Visibles</span>
+                <span className="sm:hidden">Categorías</span>
+              </button>
+            )}
+
+            {isAdmin && onExitToAdmin && (
+              <button
+                type="button"
+                onClick={onExitToAdmin}
+                className="bg-white/10 text-[#FFC107] hover:text-white px-2 py-0.5 rounded text-[9.5px] uppercase font-black transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <ArrowLeft size={11} />
+                <span>Volver</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* HORIZONTAL CATEGORIES CAROUSEL */}
-        <div className="bg-[#0e121b] border-t border-white/5 px-3 sm:px-6 py-2 overflow-x-auto flex items-center gap-1.5 sm:gap-2 custom-scrollbar">
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('all')}
-            className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
-              selectedCategory === 'all'
-                ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
-                : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
-            }`}
-          >
-            🔥 Todos los Productos
-          </button>
+        {/* MAIN STORE HEADER (FONDO NEGRO PURO #000000) */}
+        <header className="bg-[#000000]">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-3 sm:gap-4">
+            {/* LOGO PRINCIPAL */}
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center">
+                <img src="/logo png.png" alt="Lo que los bikers quieren" className="h-12 sm:h-14 w-auto object-contain drop-shadow-sm" />
+              </div>
+              <div className="hidden sm:block">
+                <EditableStoreText
+                  textKey="headerSubtitle"
+                  value={getText('headerSubtitle')}
+                  isAdmin={isAdmin}
+                  onOpenEditor={handleOpenTextEditorFor}
+                  as="p"
+                  className="text-[8.5px] text-gray-300 font-bold uppercase tracking-wider"
+                />
+              </div>
+            </div>
 
-          {categories.map((cat, catIdx) => {
-            const isSelected = getCategoryKey(selectedCategory) === getCategoryKey(cat);
-            return (
+            {/* OMNI SEARCH BAR CENTRAL: FONDO BLANCO PURO #FFFFFF, TEXTO Y PLACEHOLDER NEGRO CARBÓN #111111 */}
+            <div className="flex-1 max-w-xl hidden md:block">
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={getText('searchPlaceholder') || "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."}
+                  className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-11 pr-10 py-2 text-xs sm:text-sm text-[#111111] placeholder:text-[#111111] font-medium outline-none transition-all shadow-sm"
+                />
+                <Search size={16} className="absolute left-4 text-[#111111] pointer-events-none" />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 text-gray-500 hover:text-black p-1 cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT ACTION BUTTON: CARRITO EN NARANJA DE ALTA CONVERSIÓN #FF5200 */}
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <button
-                key={`biker-cat-${cat}-${catIdx}`}
                 type="button"
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
-                    : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
-                }`}
+                onClick={() => setIsCartOpen(true)}
+                className="relative flex items-center gap-2.5 bg-[#FF5200] hover:bg-[#e04800] text-white px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs uppercase shadow-xs active:scale-95 transition-all cursor-pointer"
               >
-                {cat}
+                <div className="relative">
+                  <ShoppingCart size={18} className="text-white stroke-[2.5]" />
+                  {cartTotals.totalUnits > 0 && (
+                    <span className="absolute -top-2.5 -right-2.5 min-w-[19px] h-[19px] px-1 rounded-full bg-[#FFC107] text-[#111111] text-[10px] font-bold flex items-center justify-center border-2 border-[#000000] shadow-xs">
+                      {cartTotals.totalUnits}
+                    </span>
+                  )}
+                </div>
+                <div className="text-left hidden sm:block leading-tight">
+                  <span className="text-[10px] block text-white/90 font-bold uppercase tracking-wider">Carrito</span>
+                  <span className="font-bold text-xs text-white">${cartTotals.totalUSD.toFixed(2)} USD</span>
+                </div>
               </button>
-            );
-          })}
-        </div>
-      </header>
+            </div>
+          </div>
+
+          {/* MOBILE SEARCH BAR: BLANCO PURO #FFFFFF, TEXTO Y PLACEHOLDER #111111 */}
+          <div className="px-3 pb-2.5 md:hidden">
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={getText('searchPlaceholder') || "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."}
+                className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-9 pr-8 py-2 text-xs text-[#111111] placeholder:text-[#111111] font-medium outline-none shadow-sm"
+              />
+              <Search size={14} className="absolute left-3 text-[#111111] pointer-events-none" />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 text-gray-500 hover:text-black p-1 cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* HORIZONTAL CATEGORIES BAR (UNIFICADO EN #000000, TIPOGRAFÍA BLANCA Y COMPACTA) */}
+          <div className="bg-[#000000] px-3 sm:px-6 py-2 overflow-x-auto flex items-center gap-1.5 sm:gap-2 custom-scrollbar border-t border-white/10">
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('all')}
+              className={`px-3 py-1 rounded-lg text-xs uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+                selectedCategory === 'all'
+                  ? 'bg-[#FF5200] text-white font-black shadow-xs'
+                  : 'text-white/80 hover:text-white hover:bg-white/10 font-bold'
+              }`}
+            >
+              🔥 Todos los Productos
+            </button>
+
+            {categories.map((cat, catIdx) => {
+              const isSelected = getCategoryKey(selectedCategory) === getCategoryKey(cat);
+              return (
+                <button
+                  key={`biker-cat-${cat}-${catIdx}`}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-3 py-1 rounded-lg text-xs uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-[#FF5200] text-white font-black shadow-xs'
+                      : 'text-white/80 hover:text-white hover:bg-white/10 font-semibold'
+                  }`}
+                >
+                  {cat}
+                </button>
+              );
+            })}
+          </div>
+        </header>
+      </div>
 
       {/* ========================================================= */}
-      {/* HERO BANNER BIKER                                         */}
+      {/* HERO BANNER BIKER (ESTILO LUMINOSO Y DE ALTA CONVERSIÓN)    */}
       {/* ========================================================= */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-[#0a0d14] via-[#0f1422] to-[#07090e] border-b border-white/10 py-4 sm:py-6 px-3 sm:px-6">
-        <div className="absolute inset-0 opacity-15 pointer-events-none bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:16px_16px]"></div>
-        
-        <div className="max-w-7xl mx-auto relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="space-y-2 max-w-2xl text-center md:text-left">
-          
+      <section className="bg-gradient-to-r from-amber-50/70 via-orange-50/30 to-white border-b border-[#E5E7EB] py-5 sm:py-7 px-3 sm:px-6">
+        <div className="max-w-7xl mx-auto relative z-10 flex flex-col md:flex-row items-center justify-between gap-5">
+          <div className="space-y-2.5 max-w-2xl text-center md:text-left">
+            <h1 className="font-extrabold text-2xl sm:text-3xl lg:text-4xl uppercase tracking-tight text-[#111111] leading-tight">
+              LO QUE LOS BIKERS QUIEREN
+            </h1>
             <EditableStoreText
               textKey="heroSubtitle"
               value={getText('heroSubtitle')}
               isAdmin={isAdmin}
               onOpenEditor={handleOpenTextEditorFor}
               as="p"
-              className="text-xs sm:text-sm text-slate-300 font-medium max-w-xl"
+              className="text-xs sm:text-sm text-[#555555] font-medium max-w-xl leading-relaxed"
             />
 
-            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3.5 pt-1 text-[10px] sm:text-xs font-bold text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 size={13} className="text-emerald-400" />
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 pt-1 text-[11px] sm:text-xs font-semibold text-[#111111]">
+              <span className="flex items-center gap-1.5 bg-white border border-gray-200 px-2.5 py-1 rounded-lg shadow-xs">
+                <CheckCircle2 size={13} className="text-emerald-600" />
                 <EditableStoreText
                   textKey="badgeProtected"
                   value={getText('badgeProtected')}
@@ -1424,8 +1498,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   as="span"
                 />
               </span>
-              <span className="flex items-center gap-1.5">
-                <Truck size={13} className="text-amber-400" />
+              <span className="flex items-center gap-1.5 bg-white border border-gray-200 px-2.5 py-1 rounded-lg shadow-xs">
+                <Truck size={13} className="text-amber-600" />
                 <EditableStoreText
                   textKey="badgeDispatch"
                   value={getText('badgeDispatch')}
@@ -1434,8 +1508,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   as="span"
                 />
               </span>
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck size={13} className="text-cyan-400" />
+              <span className="flex items-center gap-1.5 bg-white border border-gray-200 px-2.5 py-1 rounded-lg shadow-xs">
+                <ShieldCheck size={13} className="text-blue-600" />
                 <EditableStoreText
                   textKey="badgePrices"
                   value={getText('badgePrices')}
@@ -1447,23 +1521,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             </div>
           </div>
 
-          {/* QUICK PROMO CARD */}
-          <div className="w-full max-w-sm bg-gradient-to-tr from-black/80 to-[#141926] border-2 border-amber-500/30 rounded-2xl p-3.5 sm:p-4 shadow-xl relative">
-            <span className="absolute -top-2.5 right-4 bg-amber-400 text-black text-[8.5px] font-black uppercase px-2 py-0.5 rounded-full shadow-md">
+          {/* QUICK PROMO CARD (FONDO BLANCO Y BORDE SUAVE) */}
+          <div className="w-full max-w-sm bg-white border border-[#E5E7EB] rounded-2xl p-4 shadow-sm relative">
+            <span className="absolute -top-2.5 right-4 bg-[#FFC107] text-[#111111] text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full shadow-xs">
               ⚡ Envíos Diarios
             </span>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <EditableStoreText
                 textKey="stepsBoxTitle"
                 value={getText('stepsBoxTitle')}
                 isAdmin={isAdmin}
                 onOpenEditor={handleOpenTextEditorFor}
                 as="p"
-                className="text-[9.5px] font-black uppercase tracking-wider text-amber-400"
+                className="text-[10px] font-black uppercase tracking-wider text-[#111111]"
               />
-              <div className="space-y-1 text-xs text-slate-300">
+              <div className="space-y-1.5 text-xs text-[#555555]">
                 <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-amber-400 text-black text-[9px] font-black flex items-center justify-center shrink-0 mt-0.5">1</span>
+                  <span className="w-4 h-4 rounded-full bg-[#FFC107] text-[#111111] text-[9.5px] font-black flex items-center justify-center shrink-0 mt-0.5">1</span>
                   <EditableStoreText
                     textKey="step1"
                     value={getText('step1')}
@@ -1473,7 +1547,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   />
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-amber-400 text-black text-[9px] font-black flex items-center justify-center shrink-0 mt-0.5">2</span>
+                  <span className="w-4 h-4 rounded-full bg-[#FFC107] text-[#111111] text-[9.5px] font-black flex items-center justify-center shrink-0 mt-0.5">2</span>
                   <EditableStoreText
                     textKey="step2"
                     value={getText('step2')}
@@ -1483,7 +1557,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   />
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-amber-400 text-black text-[9px] font-black flex items-center justify-center shrink-0 mt-0.5">3</span>
+                  <span className="w-4 h-4 rounded-full bg-[#FFC107] text-[#111111] text-[9.5px] font-black flex items-center justify-center shrink-0 mt-0.5">3</span>
                   <EditableStoreText
                     textKey="step3"
                     value={getText('step3')}
@@ -1501,9 +1575,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* ========================================================= */}
       {/* STORE CATALOG & FILTERS                                   */}
       {/* ========================================================= */}
-      <main className="max-w-7xl mx-auto px-2.5 sm:px-4 py-3 sm:py-5 space-y-3 sm:space-y-4">
+      <main className="max-w-7xl mx-auto px-2.5 sm:px-4 py-4 sm:py-6 space-y-4">
         {/* FILTERS TOOLBAR */}
-        <div className="flex items-center justify-between flex-wrap gap-2.5 pb-2.5 border-b border-white/10">
+        <div className="flex items-center justify-between flex-wrap gap-2.5 pb-3 border-b border-[#E5E7EB]">
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5">
               <EditableStoreText
@@ -1512,19 +1586,19 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 isAdmin={isAdmin}
                 onOpenEditor={handleOpenTextEditorFor}
                 as="span"
-                className="font-anton text-lg tracking-wide uppercase text-white"
+                className="font-extrabold text-xl tracking-tight uppercase text-[#111111]"
               />
-              <span className="font-anton text-lg tracking-wide uppercase text-amber-400">
+              <span className="font-extrabold text-xl tracking-tight uppercase text-[#FF5200]">
                 ({catalogItems.length})
               </span>
             </div>
             {selectedCategory !== 'all' && (
-              <span className="text-[10px] font-black uppercase bg-amber-400/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-full">
+              <span className="text-[10.5px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-full">
                 {selectedCategory}
               </span>
             )}
             {searchQuery && (
-              <span className="text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full">
+              <span className="text-[10.5px] font-bold uppercase bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-full">
                 Búsqueda: "{searchQuery}"
               </span>
             )}
@@ -1532,28 +1606,28 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             {/* Solo en stock */}
-            <label className="flex items-center gap-2 bg-[#121622] px-3 py-1.5 rounded-xl border border-white/10 text-xs font-bold text-slate-300 cursor-pointer select-none">
+            <label className="flex items-center gap-2 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-[#111111] cursor-pointer select-none transition-colors">
               <input
                 type="checkbox"
                 checked={onlyInStock}
                 onChange={(e) => setOnlyInStock(e.target.checked)}
-                className="w-3.5 h-3.5 accent-amber-400 rounded"
+                className="w-3.5 h-3.5 accent-[#FFC107] rounded"
               />
               <span>Solo en Stock</span>
             </label>
 
             {/* Ordenar por */}
-            <div className="flex items-center gap-1.5 bg-[#121622] px-2.5 py-1.5 rounded-xl border border-white/10 text-xs font-semibold text-slate-300">
-              <SlidersHorizontal size={13} className="text-amber-400" />
+            <div className="flex items-center gap-1.5 bg-gray-50 px-2.5 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-[#111111]">
+              <SlidersHorizontal size={13} className="text-amber-500" />
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-transparent text-xs text-white outline-none cursor-pointer font-bold"
+                className="bg-transparent text-xs text-[#111111] outline-none cursor-pointer font-bold"
               >
-                <option value="destacados" className="bg-[#121622]">Destacados</option>
-                <option value="precio_asc" className="bg-[#121622]">Menor Precio</option>
-                <option value="precio_desc" className="bg-[#121622]">Mayor Precio</option>
-                <option value="nombre" className="bg-[#121622]">Nombre (A-Z)</option>
+                <option value="destacados">Destacados</option>
+                <option value="precio_asc">Menor Precio</option>
+                <option value="precio_desc">Mayor Precio</option>
+                <option value="nombre">Nombre (A-Z)</option>
               </select>
             </div>
           </div>
@@ -1563,22 +1637,22 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         {isLoadingProducts && sourceProducts.length === 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4.5 animate-pulse">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-              <div key={`skel-${n}`} className="bg-[#101420] border border-white/5 rounded-3xl p-3.5 space-y-3">
-                <div className="w-full aspect-square bg-white/5 rounded-2xl" />
-                <div className="h-4 bg-white/10 rounded-lg w-3/4" />
-                <div className="h-6 bg-white/10 rounded-lg w-1/2" />
-                <div className="h-8 bg-white/5 rounded-xl w-full" />
+              <div key={`skel-${n}`} className="bg-white border border-[#E5E7EB] rounded-xl p-3.5 space-y-3">
+                <div className="w-full aspect-square bg-gray-100 rounded-lg" />
+                <div className="h-4 bg-gray-100 rounded w-3/4" />
+                <div className="h-6 bg-gray-100 rounded w-1/2" />
+                <div className="h-8 bg-gray-100 rounded-lg w-full" />
               </div>
             ))}
           </div>
         ) : catalogItems.length === 0 ? (
-          <div className="py-20 text-center space-y-4 border-2 border-dashed border-white/10 rounded-3xl bg-[#0e121b]/50 max-w-lg mx-auto p-6">
-            <div className="w-16 h-16 rounded-2xl bg-amber-400/10 text-amber-400 flex items-center justify-center mx-auto">
+          <div className="py-20 text-center space-y-4 border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50 max-w-lg mx-auto p-6">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto">
               <ShoppingBag size={28} />
             </div>
             <div className="space-y-1">
-              <h3 className="font-anton text-xl uppercase tracking-wide text-white">No se encontraron productos</h3>
-              <p className="text-xs text-slate-400">
+              <h3 className="font-bold text-lg uppercase tracking-tight text-[#111111]">No se encontraron productos</h3>
+              <p className="text-xs text-[#555555]">
                 Intenta ajustar tu búsqueda o selecciona otra categoría en el menú superior.
               </p>
             </div>
@@ -1589,7 +1663,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 setSelectedCategory('all');
                 setOnlyInStock(false);
               }}
-              className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-black text-xs font-black uppercase rounded-xl transition-all cursor-pointer shadow-md"
+              className="px-4 py-2 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] text-xs font-black uppercase rounded-xl transition-all cursor-pointer shadow-sm"
             >
               Ver Todo el Catálogo
             </button>
@@ -1609,41 +1683,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               return (
                 <div
                   key={`biker-cat-item-${item.id}-${itemIdx}`}
-                  className="bg-[#101420] hover:bg-[#141a29] border border-white/10 hover:border-amber-400/50 rounded-2xl p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-300 group shadow-lg hover:shadow-amber-500/10 relative overflow-hidden"
+                  className="bg-white hover:shadow-lg border border-[#E5E7EB] hover:border-gray-300 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 group relative overflow-hidden"
                 >
-                  {/* Top Badges */}
-                  <div className="flex items-center justify-between gap-1 mb-1.5 z-10 flex-wrap">
-                    <div className="flex items-center gap-1">
-                      {item.categoria ? (
-                        <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10 truncate max-w-[90px]">
-                          {item.categoria}
+                  {/* Indicador de Stock Crítico (Solo si aplica, sin etiquetas ni íconos de categorías que distraigan) */}
+                  {currentStock <= 6 && (
+                    <div className="flex items-center justify-end mb-1 z-10">
+                      {currentStock <= 0 ? (
+                        <span className="text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
+                          Agotado
                         </span>
                       ) : (
-                        <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300 border border-amber-400/20">
-                          Biker
-                        </span>
-                      )}
-
-                      {/* Badge de Variantes Agrupadas */}
-                      {item.isGroup && (
-                        <span className="text-[7px] font-black uppercase px-1 py-0.5 rounded bg-indigo-500/25 text-indigo-300 border border-indigo-500/40 flex items-center gap-0.5 shadow-sm">
-                          <Boxes size={8} /> {item.variants.length}
+                        <span className="text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-[#FF5200] border border-orange-200 flex items-center gap-1 shadow-xs">
+                          <span className="animate-pulse">⏳</span>
+                          <span>Casi agotado</span>
                         </span>
                       )}
                     </div>
-
-                    {/* Indicador Inteligente de Stock (Oculto si > 6, Urgencia si <= 6) */}
-                    {currentStock <= 0 ? (
-                      <span className="text-[7px] font-black uppercase px-1 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30 shrink-0">
-                        Agotado
-                      </span>
-                    ) : currentStock <= 6 ? (
-                      <span className="text-[7px] font-black uppercase px-1 py-0.5 rounded bg-gradient-to-r from-amber-500/20 to-orange-500/25 text-orange-300 border border-orange-500/40 flex items-center gap-0.5 shrink-0 shadow-sm">
-                        <span className="animate-pulse">⏳</span>
-                        <span>Casi agotado</span>
-                      </span>
-                    ) : null}
-                  </div>
+                  )}
 
                   {/* Product Image: Carrusel de fotos compacto con altura máxima restringida */}
                   <div className="mb-1.5">
@@ -1663,27 +1719,27 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   {/* Product Info */}
                   <div className="space-y-1 flex-1 flex flex-col justify-between">
                     <div>
-                      {/* Name / Título General Compacto */}
+                      {/* Name / Título General: Negro Amazon #111111 */}
                       <h4 
                         onClick={() => openQuickView(activeVariant)}
-                        className="font-bold text-[11px] sm:text-xs text-white line-clamp-1 hover:text-amber-300 transition-colors cursor-pointer leading-tight"
+                        className="font-bold text-xs sm:text-[13px] text-[#111111] line-clamp-2 hover:text-[#FF5200] transition-colors cursor-pointer leading-tight tracking-tight"
                         title={item.title}
                       >
                         {item.title}
                       </h4>
 
-                      {/* Selector Visual de Variantes por Miniaturas (ÚNICA zona donde aparecen los modelos) */}
+                      {/* Selector Visual de Variantes por Miniaturas */}
                       {item.isGroup && item.variants.length > 1 && (
                         <div className="pt-1 pb-0.5 space-y-0.5">
                           <div className="flex items-center justify-between text-[7.5px]">
-                            <span className="text-slate-400 font-bold uppercase flex items-center gap-1 truncate max-w-[140px]">
-                              <Boxes size={8} className="text-amber-400 shrink-0" />
-                              <span className="text-slate-400">Modelo:</span>
-                              <strong className="text-amber-300 truncate">
+                            <span className="text-[#4B5563] font-semibold uppercase flex items-center gap-1 truncate max-w-[140px]">
+                              <Boxes size={8} className="text-[#FF5200] shrink-0" />
+                              <span className="text-[#4B5563]">Modelo:</span>
+                              <strong className="text-[#111111] truncate">
                                 {activeVariant.variante_nombre || activeVariant.nombre}
                               </strong>
                             </span>
-                            <span className="text-[7px] font-mono text-slate-500 shrink-0">
+                            <span className="text-[7px] font-mono text-[#4B5563] shrink-0">
                               {item.variants.length} opc.
                             </span>
                           </div>
@@ -1703,12 +1759,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                     setSelectedVariantMap(prev => ({ ...prev, [item.id]: v.id }));
                                     setCardImageIndexMap(prev => ({ ...prev, [item.id]: 0 }));
                                   }}
-                                  className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-black/60 flex items-center justify-center ${
+                                  className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
                                     isSelected
-                                      ? 'border-amber-400 ring-1 ring-amber-400/50 scale-105 shadow-sm shadow-amber-400/25 z-10'
+                                      ? 'border-[#FF5200] ring-2 ring-[#FF5200]/50 scale-105 shadow-xs z-10'
                                       : vInStock
-                                      ? 'border-white/15 opacity-75 hover:opacity-100 hover:border-white/40'
-                                      : 'border-white/5 opacity-40 line-through'
+                                      ? 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
+                                      : 'border-gray-200 opacity-40 line-through'
                                   }`}
                                   title={`${v.variante_nombre || v.nombre} - $${(v.precio_venta_ref || v.precio_mayor || 0).toFixed(2)} USD`}
                                 >
@@ -1722,12 +1778,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                       }}
                                     />
                                   ) : (
-                                    <span className="text-[7px] font-black text-slate-400 uppercase text-center p-0.5 truncate leading-none">
+                                    <span className="text-[7px] font-black text-gray-500 uppercase text-center p-0.5 truncate leading-none">
                                       {(v.variante_nombre || v.nombre).slice(0, 3)}
                                     </span>
                                   )}
                                   {!vInStock && (
-                                    <span className="absolute inset-0 bg-black/60 flex items-center justify-center text-rose-400 text-[7px] font-black">
+                                    <span className="absolute inset-0 bg-white/70 flex items-center justify-center text-rose-600 text-[7px] font-black">
                                       ✕
                                     </span>
                                   )}
@@ -1739,34 +1795,34 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       )}
                     </div>
 
-                    {/* Price section compacta */}
-                    <div className="pt-1 border-t border-white/5 space-y-0.5 font-mono">
+                    {/* Price section: Naranja de Alta Conversión #FF5200 (Estilo Shein / Temu) y Secundario en Gris Oxford Neutro #4B5563 */}
+                    <div className="pt-1.5 border-t border-gray-100 space-y-0.5 font-mono">
                       <div className="flex items-baseline gap-1 flex-wrap">
                         {item.isGroup && item.priceMin !== item.priceMax && !selectedVariantMap[item.id] ? (
                           <>
-                            <span className="text-[8px] font-bold text-slate-400 uppercase">Desde</span>
-                            <span className="text-sm sm:text-base font-extrabold text-amber-400 tracking-tight"> ${item.priceMin.toFixed(2)} - ${item.priceMax.toFixed(2)} </span>
-                            <span className="text-[10px] font-semibold text-slate-300">USD</span>
+                            <span className="text-[8px] font-bold text-[#4B5563] uppercase">Desde</span>
+                            <span className="text-base sm:text-lg font-black text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} - ${item.priceMax.toFixed(2)} </span>
+                            <span className="text-[10px] font-bold text-[#FF5200]">USD</span>
                           </>
                         ) : (
                           <>
-                            <span className="text-sm sm:text-base font-extrabold text-amber-400 tracking-tight"> ${priceUSD.toFixed(2)} </span>
-                            <span className="text-[10px] font-semibold text-slate-300">USD</span>
+                            <span className="text-base sm:text-lg font-black text-[#FF5200] tracking-tight"> ${priceUSD.toFixed(2)} </span>
+                            <span className="text-[10px] font-bold text-[#FF5200]">USD</span>
                           </>
                         )}
                       </div>
-                      <div className="text-[10px] sm:text-[10.5px] font-medium text-slate-400 leading-tight">
+                      <div className="text-[10px] sm:text-[10.5px] font-medium text-[#4B5563] leading-tight">
                         ≈ Bs. {priceBS.toFixed(2)}
                       </div>
                     </div>
 
-                    {/* Action Buttons Compactos: Abren la ventana de detalle para seleccionar modelo y cantidad */}
+                    {/* Action Buttons: AGREGAR (#FFC107) y COMPRAR AHORA */}
                     <div className="pt-1.5 space-y-1">
                       <button
                         type="button"
                         onClick={() => openQuickView(activeVariant)}
                         disabled={!isVariantInStock}
-                        className="w-full py-1.5 rounded-lg text-[9.5px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer active:scale-95 shadow-md bg-amber-400 hover:bg-amber-300 text-black shadow-amber-400/20 disabled:bg-white/5 disabled:text-slate-500 disabled:cursor-not-allowed"
+                        className="w-full py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 shadow-xs bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                       >
                         <ShoppingCart size={11} className="stroke-[2.5]" />
                         <span>Agregar</span>
@@ -1776,7 +1832,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         type="button"
                         onClick={() => openQuickView(activeVariant)}
                         disabled={!isVariantInStock}
-                        className="w-full py-1 bg-orange-600/20 hover:bg-orange-600/30 border border-orange-500/30 text-orange-300 hover:text-white rounded-lg text-[8.5px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="w-full py-1.5 bg-amber-50 hover:bg-amber-100/80 border border-amber-300 text-[#111111] rounded-lg text-[9px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <span>Comprar Ahora</span>
                         <ArrowRight size={9} />
@@ -1794,12 +1850,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* CART DRAWER / SLIDE-OVER                                  */}
       {/* ========================================================= */}
       {isCartOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-          <div className="w-full max-w-md bg-[#0e121b] border-l border-amber-500/30 h-full flex flex-col shadow-2xl animate-slide-left">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+          <div className="w-full max-w-md bg-white border-l border-gray-200 h-full flex flex-col shadow-2xl animate-slide-left text-[#111111]">
             {/* Header Drawer */}
-            <div className="p-4 pt-[max(1rem,env(safe-area-inset-top))] border-b border-white/10 bg-[#0a0d14] flex items-center justify-between">
+            <div className="p-4 pt-[max(1rem,env(safe-area-inset-top))] border-b border-gray-200 bg-gray-50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-amber-400 text-black flex items-center justify-center font-black">
+                <div className="w-8 h-8 rounded-xl bg-[#FFC107] text-[#111111] flex items-center justify-center font-black shadow-xs">
                   <ShoppingCart size={16} />
                 </div>
                 <div>
@@ -1809,9 +1865,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     isAdmin={isAdmin}
                     onOpenEditor={handleOpenTextEditorFor}
                     as="h3"
-                    className="font-anton text-base uppercase tracking-wider text-white leading-none"
+                    className="font-anton text-base uppercase tracking-wider text-[#111111] leading-none"
                   />
-                  <p className="text-[9.5px] text-slate-400 font-bold uppercase mt-0.5">
+                  <p className="text-[9.5px] text-[#555555] font-bold uppercase mt-0.5">
                     {cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto seleccionado' : 'productos seleccionados'}
                   </p>
                 </div>
@@ -1820,11 +1876,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCartOpen(false)}
-                className="w-9 h-9 rounded-xl bg-red-500/15 hover:bg-red-600 text-red-500 hover:text-white border-2 border-red-500/60 hover:border-red-600 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-md shadow-red-500/20 shrink-0"
+                className="w-9 h-9 rounded-xl bg-gray-200 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
                 title="Cerrar carrito"
                 aria-label="Cerrar carrito"
               >
-                <X size={18} strokeWidth={3} />
+                <X size={18} strokeWidth={2.5} />
               </button>
             </div>
 
@@ -1832,17 +1888,17 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <div className="p-4 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
               {cart.length === 0 ? (
                 <div className="py-20 text-center space-y-3">
-                  <div className="w-16 h-16 rounded-2xl bg-white/5 text-slate-600 flex items-center justify-center mx-auto">
+                  <div className="w-16 h-16 rounded-2xl bg-gray-100 text-gray-400 flex items-center justify-center mx-auto">
                     <ShoppingBag size={28} />
                   </div>
-                  <p className="font-anton text-base uppercase text-slate-400">Tu carrito está vacío</p>
-                  <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                  <p className="font-anton text-base uppercase text-[#111111]">Tu carrito está vacío</p>
+                  <p className="text-xs text-[#555555] max-w-xs mx-auto">
                     Explora nuestro catálogo de accesorios para motos para agregar productos a tu compra.
                   </p>
                   <button
                     type="button"
                     onClick={() => setIsCartOpen(false)}
-                    className="px-4 py-2 bg-amber-400 text-black text-xs font-black uppercase rounded-xl cursor-pointer"
+                    className="px-4 py-2 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] text-xs font-black uppercase rounded-xl cursor-pointer shadow-xs transition-colors"
                   >
                     Ir al Catálogo
                   </button>
@@ -1853,49 +1909,49 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   return (
                     <div
                       key={`cart-item-${item.product.id || 'p'}-${item.product.sku || ''}-${cartIdx}`}
-                      className="bg-[#141824] border border-white/5 rounded-2xl p-3 flex items-center gap-3 relative group"
+                      className="bg-gray-50 border border-gray-200 rounded-2xl p-3 flex items-center gap-3 relative group"
                     >
                       {/* Thumbnail */}
-                      <div className="w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
+                      <div className="w-14 h-14 rounded-xl bg-white border border-gray-200 overflow-hidden flex items-center justify-center shrink-0">
                         {img ? (
                           <img src={img} alt={item.product.nombre} className="w-full h-full object-cover" />
                         ) : (
-                          <Package size={20} className="text-slate-600" />
+                          <Package size={20} className="text-gray-400" />
                         )}
                       </div>
 
                       {/* Info & Quantity */}
                       <div className="flex-1 min-w-0">
-                        <h5 className="font-bold text-xs text-white truncate">
+                        <h5 className="font-bold text-xs text-[#111111] truncate">
                           {item.product.nombre}
                         </h5>
-                        <p className="text-[10px] font-mono text-amber-400 font-bold mt-0.5">
-                          ${item.precio_unitario.toFixed(2)} USD <span className="text-slate-400 font-normal">c/u</span>
+                        <p className="text-[10.5px] font-mono text-[#FF5200] font-bold mt-0.5">
+                          ${item.precio_unitario.toFixed(2)} USD <span className="text-[#4B5563] font-normal">c/u</span>
                         </p>
 
                         {/* Stepper */}
                         <div className="flex items-center justify-between mt-2">
-                          <div className="inline-flex items-center bg-black/60 border border-white/10 rounded-lg p-0.5">
+                          <div className="inline-flex items-center bg-white border border-gray-300 rounded-lg p-0.5">
                             <button
                               type="button"
                               onClick={() => handleUpdateCartQty(item.product.id, item.quantity - 1)}
-                              className="w-5 h-5 rounded flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 font-black cursor-pointer text-xs"
+                              className="w-5 h-5 rounded flex items-center justify-center text-gray-600 hover:text-black hover:bg-gray-100 font-black cursor-pointer text-xs"
                             >
                               -
                             </button>
-                            <span className="w-7 text-center font-mono font-bold text-xs text-white">
+                            <span className="w-7 text-center font-mono font-bold text-xs text-[#111111]">
                               {item.quantity}
                             </span>
                             <button
                               type="button"
                               onClick={() => handleUpdateCartQty(item.product.id, item.quantity + 1)}
-                              className="w-5 h-5 rounded flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 font-black cursor-pointer text-xs"
+                              className="w-5 h-5 rounded flex items-center justify-center text-gray-600 hover:text-black hover:bg-gray-100 font-black cursor-pointer text-xs"
                             >
                               +
                             </button>
                           </div>
 
-                          <span className="font-mono font-black text-xs text-white">
+                          <span className="font-mono font-black text-xs text-[#FF5200]">
                             ${item.subtotal.toFixed(2)}
                           </span>
                         </div>
@@ -1905,7 +1961,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       <button
                         type="button"
                         onClick={() => handleRemoveFromCart(item.product.id)}
-                        className="text-slate-500 hover:text-rose-400 p-1.5 transition-colors cursor-pointer"
+                        className="text-gray-400 hover:text-rose-600 p-1.5 transition-colors cursor-pointer"
                         title="Eliminar del carrito"
                       >
                         <Trash2 size={14} />
@@ -1918,19 +1974,19 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
             {/* Footer Drawer */}
             {cart.length > 0 && (
-              <div className="p-4 border-t border-white/10 bg-[#0a0d14] space-y-3 font-mono">
+              <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-3 font-mono">
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
+                  <div className="flex items-center justify-between text-xs text-[#4B5563]">
                     <span>Subtotal USD:</span>
-                    <span className="font-bold text-white">${cartTotals.totalUSD.toFixed(2)}</span>
+                    <span className="font-bold text-[#111111]">${cartTotals.totalUSD.toFixed(2)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-slate-400">
+                  <div className="flex items-center justify-between text-xs text-[#4B5563]">
                     <span>Equivalente en Bolívares:</span>
-                    <span className="font-bold text-amber-300">Bs. {cartTotals.totalBS.toFixed(2)}</span>
+                    <span className="font-bold text-[#4B5563]">Bs. {cartTotals.totalBS.toFixed(2)}</span>
                   </div>
-                  <div className="flex items-baseline justify-between pt-2 border-t border-white/10">
-                    <span className="font-anton text-sm uppercase text-slate-300">Total a Pagar:</span>
-                    <span className="font-anton text-2xl text-amber-400">${cartTotals.totalUSD.toFixed(2)} USD</span>
+                  <div className="flex items-baseline justify-between pt-2 border-t border-gray-200">
+                    <span className="font-anton text-sm uppercase text-[#111111]">Total a Pagar:</span>
+                    <span className="font-anton text-2xl text-[#FF5200]">${cartTotals.totalUSD.toFixed(2)} USD</span>
                   </div>
                 </div>
 
@@ -1941,7 +1997,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       setIsCartOpen(false);
                       setIsCheckoutOpen(true);
                     }}
-                    className="w-full py-3 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-black font-black uppercase text-xs rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-amber-500/25 cursor-pointer active:scale-98 transition-all"
+                    className="w-full py-3 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] font-black uppercase text-xs rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
                   >
                     <span>Finalizar Compra y Datos de Envío</span>
                     <ArrowRight size={14} />
@@ -1950,7 +2006,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   <button
                     type="button"
                     onClick={handleClearCart}
-                    className="w-full py-1 text-center text-[10px] text-slate-500 hover:text-rose-400 uppercase font-bold cursor-pointer transition-colors"
+                    className="w-full py-1 text-center text-[10px] text-gray-500 hover:text-rose-600 uppercase font-bold cursor-pointer transition-colors"
                   >
                     {confirmClearCart ? '⚠️ ¿Confirmar vaciar todo el carrito?' : 'Vaciar Carrito'}
                   </button>
@@ -1965,13 +2021,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* CHECKOUT MODAL: DATOS DE ENVÍO REQUERIDOS POR EL CLIENTE   */}
       {/* ========================================================= */}
       {isCheckoutOpen && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
-          <div className="bg-[#0e121b] border-2 border-amber-500/40 rounded-3xl w-full max-w-2xl max-h-[calc(100dvh-2.5rem)] flex flex-col overflow-hidden shadow-2xl animate-scale-up my-auto">
-            {/* Modal Header: Título y Ruta de Pasos integrados en la misma tarjeta */}
-            <div className="p-3.5 sm:p-4 border-b border-white/10 bg-[#0a0d14] space-y-2.5">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
+          <div className="bg-white border border-gray-200 rounded-3xl w-full max-w-2xl max-h-[calc(100dvh-2.5rem)] flex flex-col overflow-hidden shadow-2xl animate-scale-up my-auto text-[#111111]">
+            {/* Modal Header: Título y Ruta de Pasos */}
+            <div className="p-3.5 sm:p-4 border-b border-gray-200 bg-gray-50 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-2xl bg-gradient-to-tr from-amber-400 to-orange-500 text-black flex items-center justify-center font-black shrink-0">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-2xl bg-[#FFC107] text-[#111111] flex items-center justify-center font-black shrink-0 shadow-xs">
                     <Truck size={17} />
                   </div>
                   <div>
@@ -1981,7 +2037,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       isAdmin={isAdmin}
                       onOpenEditor={handleOpenTextEditorFor}
                       as="h3"
-                      className="font-anton text-base sm:text-lg uppercase tracking-wider text-white leading-none"
+                      className="font-anton text-base sm:text-lg uppercase tracking-wider text-[#111111] leading-none"
                     />
                     <EditableStoreText
                       textKey="checkoutModalSubtitle"
@@ -1989,7 +2045,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       isAdmin={isAdmin}
                       onOpenEditor={handleOpenTextEditorFor}
                       as="p"
-                      className="text-[9.5px] sm:text-[10.5px] text-slate-400 font-bold uppercase mt-0.5"
+                      className="text-[9.5px] sm:text-[10.5px] text-[#555555] font-bold uppercase mt-0.5"
                     />
                   </div>
                 </div>
@@ -1997,16 +2053,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsCheckoutOpen(false)}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-red-500/15 hover:bg-red-600 text-red-500 hover:text-white border-2 border-red-500/60 hover:border-red-600 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-md shadow-red-500/20 shrink-0"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gray-200 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
                   title="Cerrar ventana"
                   aria-label="Cerrar ventana"
                 >
-                  <X size={17} strokeWidth={3} />
+                  <X size={17} strokeWidth={2.5} />
                 </button>
               </div>
 
-              {/* Barra de Ruta (Pasos 1 y 2) dentro de la tarjeta de cabecera */}
-              <div className="flex items-center justify-between bg-black/50 border border-white/10 rounded-xl p-2 px-3 text-xs font-bold">
+              {/* Barra de Ruta (Pasos 1 y 2) */}
+              <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-2 px-3 text-xs font-bold shadow-xs">
                 <button
                   type="button"
                   onClick={() => {
@@ -2014,26 +2070,26 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     setCheckoutStep(1);
                   }}
                   className={`flex items-center gap-1.5 cursor-pointer transition-colors ${
-                    checkoutStep === 1 ? 'text-amber-300' : 'text-emerald-400 hover:text-emerald-300'
+                    checkoutStep === 1 ? 'text-[#111111] font-black' : 'text-emerald-600 hover:text-emerald-700'
                   }`}
                 >
                   <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black ${
-                    checkoutStep === 1 ? 'bg-amber-400 text-black' : 'bg-emerald-500 text-black'
+                    checkoutStep === 1 ? 'bg-[#FFC107] text-[#111111]' : 'bg-emerald-500 text-white'
                   }`}>
                     {checkoutStep === 2 ? '✓' : '1'}
                   </span>
                   <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-extrabold">1. Llenar datos para el envío</span>
                 </button>
 
-                <div className="flex-1 mx-2 sm:mx-3 h-0.5 bg-white/10 relative">
-                  <div className={`h-full bg-amber-400 transition-all duration-300 ${checkoutStep === 2 ? 'w-full' : 'w-0'}`} />
+                <div className="flex-1 mx-2 sm:mx-3 h-0.5 bg-gray-200 relative">
+                  <div className={`h-full bg-[#FFC107] transition-all duration-300 ${checkoutStep === 2 ? 'w-full' : 'w-0'}`} />
                 </div>
 
                 <div className={`flex items-center gap-1.5 ${
-                  checkoutStep === 2 ? 'text-amber-300' : 'text-slate-500 opacity-60'
+                  checkoutStep === 2 ? 'text-[#111111] font-black' : 'text-gray-400'
                 }`}>
                   <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black ${
-                    checkoutStep === 2 ? 'bg-amber-400 text-black' : 'bg-white/10 text-slate-400'
+                    checkoutStep === 2 ? 'bg-[#FFC107] text-[#111111]' : 'bg-gray-200 text-gray-600'
                   }`}>
                     2
                   </span>
@@ -2046,8 +2102,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <form onSubmit={handleSubmitOrder} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar">
               {/* Form Error Banner */}
               {orderFormError && (
-                <div className="bg-rose-500/15 border border-rose-500/30 text-rose-300 p-3 rounded-2xl text-xs font-bold flex items-center gap-2.5 animate-shake">
-                  <AlertCircle size={16} className="text-rose-400 shrink-0" />
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs font-bold flex items-center gap-2.5 animate-shake">
+                  <AlertCircle size={16} className="text-rose-600 shrink-0" />
                   <span>{orderFormError}</span>
                 </div>
               )}
@@ -2057,9 +2113,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               {/* ========================================================= */}
               {checkoutStep === 1 && (
                 <div className="space-y-4 animate-fade-in">
-                  <div className="flex items-center gap-2 pb-1 border-b border-white/10">
-                    <User size={15} className="text-amber-400" />
-                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                  <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                    <User size={15} className="text-[#FF5722]" />
+                    <h4 className="text-xs font-black uppercase tracking-wider text-[#111111]">
                       Información Personal & Encomienda
                     </h4>
                   </div>
@@ -2067,7 +2123,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     {/* 1. NOMBRE */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
                         <span>1. Nombre Completo *</span>
                       </label>
                       <input
@@ -2076,13 +2132,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         value={clienteNombre}
                         onChange={(e) => setClienteNombre(e.target.value)}
                         placeholder="Ej: Carlos Rodriguez"
-                        className="w-full bg-[#141926] border border-white/15 focus:border-amber-400 p-3 rounded-xl text-white text-xs font-bold outline-none transition-all placeholder:text-slate-600"
+                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-semibold outline-none transition-all placeholder:text-gray-400"
                       />
                     </div>
 
                     {/* 2. NÚMERO DE CÉDULA */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
                         <span>2. Número de Cédula (V / E) *</span>
                       </label>
                       <input
@@ -2091,13 +2147,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         value={clienteCedula}
                         onChange={(e) => setClienteCedula(e.target.value)}
                         placeholder="Ej: V-19.456.789"
-                        className="w-full bg-[#141926] border border-white/15 focus:border-amber-400 p-3 rounded-xl text-white text-xs font-bold outline-none transition-all placeholder:text-slate-600 font-mono"
+                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-semibold outline-none transition-all placeholder:text-gray-400 font-mono"
                       />
                     </div>
 
                     {/* 3. TELÉFONO */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
                         <span>3. Teléfono / WhatsApp *</span>
                       </label>
                       <input
@@ -2106,19 +2162,19 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         value={clienteTelefono}
                         onChange={(e) => setClienteTelefono(e.target.value)}
                         placeholder="Ej: 0412-1234567"
-                        className="w-full bg-[#141926] border border-white/15 focus:border-amber-400 p-3 rounded-xl text-white text-xs font-bold outline-none transition-all placeholder:text-slate-600 font-mono"
+                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-semibold outline-none transition-all placeholder:text-gray-400 font-mono"
                       />
                     </div>
 
                     {/* AGENCIA DE ENVÍO SELECTOR */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#555555] flex items-center gap-1">
                         <span>Empresa de Encomiendas</span>
                       </label>
                       <select
                         value={agenciaSeleccionada}
                         onChange={(e) => setAgenciaSeleccionada(e.target.value as any)}
-                        className="w-full bg-[#141926] border border-white/15 focus:border-amber-400 p-3 rounded-xl text-white text-xs font-bold outline-none cursor-pointer"
+                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-semibold outline-none cursor-pointer"
                       >
                         <option value="MRW">MRW</option>
                         <option value="Zoom">Zoom</option>
@@ -2130,8 +2186,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                     {/* 4. DIRECCIÓN DE LA AGENCIA DE ENVÍO */}
                     <div className="space-y-1 sm:col-span-2">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1">
-                        <MapPin size={11} className="text-amber-400" />
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
+                        <MapPin size={11} className="text-[#FF5722]" />
                         <span>4. Dirección de la Agencia de Envío *</span>
                       </label>
                       <textarea
@@ -2140,20 +2196,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         value={direccionAgencia}
                         onChange={(e) => setDireccionAgencia(e.target.value)}
                         placeholder="Ej: Agencia MRW San Cristóbal Centro, Calle 5 con Carrera 8, Estado Táchira (Código: 1234)"
-                        className="w-full bg-[#141926] border border-white/15 focus:border-amber-400 p-3 rounded-xl text-white text-xs font-medium outline-none transition-all placeholder:text-slate-600"
+                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-medium outline-none transition-all placeholder:text-gray-400"
                       />
                     </div>
                   </div>
 
-                  {/* Resumen sutil al final del formulario: texto pequeño para priorizar el llenado de datos */}
-                  <div className="pt-2 border-t border-white/10 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium px-1">
+                  {/* Resumen sutil al final del formulario */}
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] text-[#555555] font-medium px-1">
                       <span className="flex items-center gap-1.5">
-                        <ShoppingBag size={13} className="text-amber-400" />
+                        <ShoppingBag size={13} className="text-amber-500" />
                         <span>{cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto en orden' : 'productos en orden'}</span>
                       </span>
                       <span className="font-mono text-right">
-                        Total: <strong className="text-amber-400 font-extrabold">${cartTotals.totalUSD.toFixed(2)} USD</strong> <span className="text-slate-400 font-normal text-[10px]">(≈ Bs. {cartTotals.totalBS.toFixed(2)})</span>
+                        Total: <strong className="text-[#FF5200] font-black">${cartTotals.totalUSD.toFixed(2)} USD</strong> <span className="text-[#4B5563] font-medium text-[10px]">(≈ Bs. {cartTotals.totalBS.toFixed(2)})</span>
                       </span>
                     </div>
 
@@ -2179,7 +2235,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         }
                         setCheckoutStep(2);
                       }}
-                      className="w-full py-3.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-black font-anton tracking-wider text-base uppercase rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-amber-500/25 cursor-pointer active:scale-98 transition-all"
+                      className="w-full py-3 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] font-anton tracking-wider text-sm uppercase rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
                     >
                       <span>Siguiente: Método de Pago</span>
                       <ArrowRight size={16} />
@@ -2193,38 +2249,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               {/* ========================================================= */}
               {checkoutStep === 2 && (
                 <div className="space-y-3 animate-fade-in">
-                  {/* Micro Progreso Compacto */}
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 px-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setCheckoutStep(1)}
-                        className="text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer flex items-center gap-1 transition-colors"
-                      >
-                        <span>✓ 1. Llenar datos para el envío</span>
-                      </button>
-                      <span className="text-slate-600">›</span>
-                      <span className="text-amber-400 font-black">2. Pago y Confirmación</span>
-                    </div>
-                    <span className="font-mono text-amber-300 font-extrabold text-xs">
-                      ${cartTotals.totalUSD.toFixed(2)} USD
-                    </span>
-                  </div>
-
                   {/* SECCIÓN 1: MÉTODOS DE PAGO Y DATOS BANCARIOS */}
-                  <div className="bg-[#0c101a] border border-white/10 rounded-2xl p-3 space-y-2.5">
+                  <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3 space-y-2.5">
                     {/* Botones de Métodos de Pago */}
                     <div>
                       <div className="flex items-center justify-between pb-1 flex-wrap gap-1">
-                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-300 flex items-center gap-1">
-                          <CreditCard size={12} className="text-amber-400" />
+                        <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
+                          <CreditCard size={12} className="text-[#FF5722]" />
                           <span>Métodos de Pago</span>
                         </label>
                         {isAdmin && (
                           <button
                             type="button"
                             onClick={() => setIsPaymentMethodsModalOpen(true)}
-                            className="text-[9.5px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-lg flex items-center gap-1 font-bold cursor-pointer transition-colors"
+                            className="text-[9.5px] bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-lg flex items-center gap-1 font-bold cursor-pointer transition-colors"
                           >
                             <Edit3 size={10} />
                             <span>Editar Cuentas</span>
@@ -2241,8 +2279,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               onClick={() => setMetodoPago(method.nombre)}
                               className={`py-1.5 px-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${
                                 isSel
-                                  ? 'bg-amber-400 text-black border-amber-400 font-black shadow-sm'
-                                  : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                                  ? 'bg-[#FFC107] text-[#111111] border-[#FFC107] font-black shadow-xs'
+                                  : 'bg-white border-gray-200 text-[#555555] hover:bg-gray-100'
                               }`}
                             >
                               {method.nombre}
@@ -2253,22 +2291,21 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
 
                     {/* Monto exacto a pagar (USD y Bs BCV) */}
-                    <div className="bg-amber-400/10 border border-amber-400/20 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                    <div className="bg-white border border-gray-200 rounded-xl p-2.5 flex items-center justify-between text-xs shadow-xs">
                       <div>
-                        <span className="text-[9px] uppercase font-bold text-amber-300/80 block">Monto Exacto a Pagar:</span>
-                        <span className="font-mono text-base font-extrabold text-amber-400">${cartTotals.totalUSD.toFixed(2)} USD</span>
+                        <span className="text-[9px] uppercase font-bold text-[#4B5563] block">Monto Exacto a Pagar:</span>
+                        <span className="font-mono text-base font-black text-[#FF5200]">${cartTotals.totalUSD.toFixed(2)} USD</span>
                       </div>
                       <div className="text-right">
-                        <span className="text-[9px] uppercase font-bold text-slate-400 block">En Bolívares (BCV {tasaBCV.toFixed(2)}):</span>
-                        <span className="font-mono font-bold text-white text-sm">Bs. {cartTotals.totalBS.toFixed(2)}</span>
+                        <span className="text-[9px] uppercase font-bold text-[#4B5563] block">En Bolívares (BCV {tasaBCV.toFixed(2)}):</span>
+                        <span className="font-mono font-bold text-[#111111] text-sm">Bs. {cartTotals.totalBS.toFixed(2)}</span>
                       </div>
                     </div>
 
                     {/* Datos Bancarios Copiables */}
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-wider px-0.5">
-                        <span>Datos para transferir ({selectedPaymentMethod?.nombre || metodoPago}):</span>
-                        <span className="text-amber-400">Toca para copiar</span>
+                      <div className="text-[10px] text-[#555555] font-bold uppercase tracking-wider px-0.5">
+                        Datos para transferir ({selectedPaymentMethod?.nombre || metodoPago}):
                       </div>
 
                       <div className="space-y-1.5 text-[11px]">
@@ -2276,21 +2313,21 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           selectedPaymentMethod.campos.map((campo, cIdx) => (
                             <div
                               key={campo.id || `campo-${cIdx}`}
-                              className="flex justify-between items-center bg-[#07090e] p-1.5 px-2.5 rounded-xl border border-white/5 gap-2"
+                              className="flex justify-between items-center bg-white p-2 px-3 rounded-xl border border-gray-200 gap-2 shadow-xs"
                             >
-                              <span className="text-slate-400 text-[10.5px] shrink-0">{campo.etiqueta}:</span>
+                              <span className="text-[#555555] text-[10.5px] shrink-0 font-medium">{campo.etiqueta}:</span>
                               <div className="flex items-center gap-2 overflow-hidden">
-                                <span className="font-bold text-amber-300 font-mono truncate text-right text-xs">
+                                <span className="font-bold text-[#111111] font-mono truncate text-right text-xs">
                                   {campo.valor}
                                 </span>
                                 {campo.copiable !== false && campo.valor && (
                                   <button
                                     type="button"
                                     onClick={() => handleCopyBankData(campo.valor, `field_${campo.id || cIdx}`)}
-                                    className="text-[9.5px] bg-white/10 hover:bg-white/20 text-white px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer shrink-0 font-bold"
+                                    className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer shrink-0 font-bold border border-gray-200"
                                   >
                                     {copiedBankField === `field_${campo.id || cIdx}` ? (
-                                      <Check size={10} className="text-emerald-400" />
+                                      <Check size={10} className="text-emerald-600" />
                                     ) : (
                                       <Copy size={10} />
                                     )}
@@ -2301,7 +2338,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             </div>
                           ))
                         ) : (
-                          <p className="text-[10.5px] text-slate-400 py-1">
+                          <p className="text-[10.5px] text-[#555555] py-1">
                             No hay datos registrados para este método.
                           </p>
                         )}
@@ -2309,30 +2346,30 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   </div>
 
-                  {/* SECCIÓN 2: COMPROBANTE DE PAGO (Solo subida de imagen, sin campo de referencia) */}
+                  {/* SECCIÓN 2: COMPROBANTE DE PAGO */}
                   {tipoConfirmacion === 'comprobante' && (
-                    <div className="bg-[#0c101a] border border-emerald-500/30 rounded-2xl p-3 space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-emerald-300 flex items-center justify-between">
+                    <div className="bg-emerald-50/50 border border-emerald-200 rounded-2xl p-3 space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-emerald-800 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
-                          <Receipt size={12} className="text-emerald-400" />
+                          <Receipt size={12} className="text-emerald-600" />
                           <span>Adjuntar Comprobante de Pago (Captura o Foto) *</span>
                         </span>
-                        <span className="text-[9px] text-emerald-400/80 font-normal">Requerido</span>
+                        <span className="text-[9px] text-emerald-700 font-semibold">Requerido</span>
                       </label>
 
                       {comprobanteUrl ? (
-                        <div className="bg-[#07090e] border border-emerald-500/40 rounded-xl p-2.5 flex items-center justify-between gap-3">
+                        <div className="bg-white border border-emerald-300 rounded-xl p-2.5 flex items-center justify-between gap-3 shadow-xs">
                           <div className="flex items-center gap-2.5 overflow-hidden">
                             <img
                               src={comprobanteUrl}
                               alt="Comprobante de pago"
-                              className="w-11 h-11 object-cover rounded-lg border border-emerald-500/30 shrink-0"
+                              className="w-11 h-11 object-cover rounded-lg border border-emerald-200 shrink-0"
                             />
                             <div className="overflow-hidden">
-                              <span className="text-xs font-bold text-emerald-300 block truncate">
+                              <span className="text-xs font-bold text-emerald-800 block truncate">
                                 {comprobanteFileName || 'comprobante_pago.jpg'}
                               </span>
-                              <span className="text-[10px] text-emerald-400/80 font-mono flex items-center gap-1">
+                              <span className="text-[10px] text-emerald-600 font-mono flex items-center gap-1 font-semibold">
                                 <CheckCircle2 size={10} /> Comprobante listo
                               </span>
                             </div>
@@ -2343,13 +2380,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               setComprobanteUrl(null);
                               setComprobanteFileName(null);
                             }}
-                            className="text-rose-400 hover:text-rose-300 text-[10px] font-bold py-1 px-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 shrink-0 cursor-pointer"
+                            className="text-rose-600 hover:text-rose-700 text-[10px] font-bold py-1 px-2.5 rounded-lg bg-rose-50 border border-rose-200 shrink-0 cursor-pointer"
                           >
                             Cambiar
                           </button>
                         </div>
                       ) : (
-                        <label className="border-2 border-dashed border-emerald-500/30 hover:border-emerald-400 bg-emerald-950/20 hover:bg-emerald-950/30 transition-all rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer text-center group">
+                        <label className="border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/40 transition-all rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer text-center group shadow-xs">
                           <input
                             type="file"
                             accept="image/*"
@@ -2358,20 +2395,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             disabled={isUploadingReceipt}
                           />
                           {isUploadingReceipt ? (
-                            <div className="flex items-center gap-2 text-xs text-emerald-300 font-bold py-1.5">
-                              <RotateCcw size={14} className="animate-spin text-emerald-400" />
+                            <div className="flex items-center gap-2 text-xs text-emerald-700 font-bold py-1.5">
+                              <RotateCcw size={14} className="animate-spin text-emerald-600" />
                               <span>Optimizando comprobante...</span>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2.5 py-1">
-                              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
                                 <Upload size={15} />
                               </div>
                               <div className="text-left">
-                                <span className="text-xs font-bold text-white group-hover:text-emerald-300 block">
+                                <span className="text-xs font-bold text-[#111111] group-hover:text-emerald-700 block">
                                   Toca para subir captura o foto
                                 </span>
-                                <span className="text-[9.5px] text-slate-400 block">
+                                <span className="text-[9.5px] text-[#555555] block">
                                   PNG, JPG o captura de pantalla
                                 </span>
                               </div>
@@ -2382,7 +2419,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-                  {/* SECCIÓN 3: MODO DE CONFIRMACIÓN (Botones limpios con texto multilínea sin desbordar) */}
+                  {/* SECCIÓN 3: MODO DE CONFIRMACIÓN */}
                   <div className="space-y-1.5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {/* Opción 1: Pagar y subir comprobante */}
@@ -2391,14 +2428,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         onClick={() => setTipoConfirmacion('comprobante')}
                         className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start justify-between gap-2 min-h-[60px] ${
                           tipoConfirmacion === 'comprobante'
-                            ? 'bg-emerald-500/20 border-emerald-400 text-white shadow-sm ring-1 ring-emerald-400/40'
-                            : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+                            ? 'bg-emerald-50 border-emerald-400 text-emerald-900 shadow-xs ring-1 ring-emerald-400'
+                            : 'bg-white border-gray-200 text-[#555555] hover:bg-gray-50'
                         }`}
                       >
                         <div className="flex items-start gap-2 min-w-0 flex-1">
                           <span className="text-sm shrink-0 mt-0.5">⚡</span>
                           <div className="min-w-0 flex-1">
-                            <span className="text-[11px] font-bold text-white block leading-snug break-words">
+                            <span className="text-[11px] font-bold text-[#111111] block leading-snug break-words">
                               Pagar y subir comprobante
                             </span>
                             <EditableStoreText
@@ -2407,14 +2444,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               isAdmin={isAdmin}
                               onOpenEditor={handleOpenTextEditorFor}
                               as="span"
-                              className="text-[9.5px] text-emerald-400 font-medium block leading-snug break-words mt-0.5 whitespace-normal"
+                              className="text-[9.5px] text-emerald-700 font-semibold block leading-snug break-words mt-0.5 whitespace-normal"
                             />
                           </div>
                         </div>
                         <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                          tipoConfirmacion === 'comprobante' ? 'border-emerald-400 bg-emerald-400' : 'border-white/30'
+                          tipoConfirmacion === 'comprobante' ? 'border-emerald-600 bg-emerald-600' : 'border-gray-300'
                         }`}>
-                          {tipoConfirmacion === 'comprobante' && <Check size={9} className="text-black stroke-[3]" />}
+                          {tipoConfirmacion === 'comprobante' && <Check size={9} className="text-white stroke-[3]" />}
                         </div>
                       </button>
 
@@ -2424,14 +2461,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         onClick={() => setTipoConfirmacion('whatsapp')}
                         className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start justify-between gap-2 min-h-[60px] ${
                           tipoConfirmacion === 'whatsapp'
-                            ? 'bg-amber-500/20 border-amber-400 text-white shadow-sm ring-1 ring-amber-400/40'
-                            : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+                            ? 'bg-amber-50 border-amber-400 text-amber-900 shadow-xs ring-1 ring-amber-400'
+                            : 'bg-white border-gray-200 text-[#555555] hover:bg-gray-50'
                         }`}
                       >
                         <div className="flex items-start gap-2 min-w-0 flex-1">
                           <span className="text-sm shrink-0 mt-0.5">💬</span>
                           <div className="min-w-0 flex-1">
-                            <span className="text-[11px] font-bold text-white block leading-snug break-words">
+                            <span className="text-[11px] font-bold text-[#111111] block leading-snug break-words">
                               Concretar por WhatsApp
                             </span>
                             <EditableStoreText
@@ -2440,41 +2477,39 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               isAdmin={isAdmin}
                               onOpenEditor={handleOpenTextEditorFor}
                               as="span"
-                              className="text-[9.5px] text-amber-400 font-medium block leading-snug break-words mt-0.5 whitespace-normal"
+                              className="text-[9.5px] text-amber-800 font-semibold block leading-snug break-words mt-0.5 whitespace-normal"
                             />
                           </div>
                         </div>
                         <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                          tipoConfirmacion === 'whatsapp' ? 'border-amber-400 bg-amber-400' : 'border-white/30'
+                          tipoConfirmacion === 'whatsapp' ? 'border-[#FFC107] bg-[#FFC107]' : 'border-gray-300'
                         }`}>
-                          {tipoConfirmacion === 'whatsapp' && <Check size={9} className="text-black stroke-[3]" />}
+                          {tipoConfirmacion === 'whatsapp' && <Check size={9} className="text-[#111111] stroke-[3]" />}
                         </div>
                       </button>
                     </div>
                   </div>
 
-                  {/* SECCIÓN 4: RESUMEN AL FINAL (Desplegable con miniaturas y datos de envío) */}
-                  <div className="bg-[#0c101a] border border-white/10 rounded-2xl overflow-hidden transition-all shadow-sm">
-                    {/* Barra principal siempre visible (Muestra máximo 3 miniaturas y flecha) */}
+                  {/* SECCIÓN 4: RESUMEN AL FINAL */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-2xl overflow-hidden transition-all shadow-xs">
                     <div
                       onClick={() => setIsOrderSummaryExpanded(!isOrderSummaryExpanded)}
-                      className="p-2 px-3 flex items-center justify-between text-[11px] gap-2 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                      className="p-2 px-3 flex items-center justify-between text-[11px] gap-2 cursor-pointer hover:bg-gray-100 transition-colors select-none"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        {/* Miniaturas de los productos (máximo 3 visibles) */}
                         <div className="flex items-center -space-x-1 shrink-0">
                           {cart.slice(0, 3).map((item, idx) => {
                             const imgUrl = formatDirectImageUrl(item.product.variante_imagen_miniatura || item.product.imagen_portada || item.product.imagen_url || item.product.link);
                             return (
                               <div
                                 key={`summary-thumb-${item.product.id}-${idx}`}
-                                className="w-5 h-5 rounded-md bg-black/70 border border-white/20 overflow-hidden shrink-0 shadow-sm"
+                                className="w-5 h-5 rounded-md bg-white border border-gray-300 overflow-hidden shrink-0 shadow-xs"
                                 title={`${item.product.nombre} (x${item.quantity})`}
                               >
                                 {imgUrl ? (
                                   <img src={imgUrl} alt="" className="w-full h-full object-cover" />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-[7px] text-amber-300 font-bold">
+                                  <div className="w-full h-full flex items-center justify-center text-[7px] text-amber-500 font-bold">
                                     🛒
                                   </div>
                                 )}
@@ -2482,17 +2517,17 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             );
                           })}
                           {cart.length > 3 && (
-                            <span className="w-5 h-5 rounded-md bg-amber-400/20 border border-amber-400/50 text-amber-300 text-[8px] font-black flex items-center justify-center shrink-0 z-10 shadow-sm">
+                            <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300 text-amber-900 text-[8px] font-black flex items-center justify-center shrink-0 z-10 shadow-xs">
                               +{cart.length - 3}
                             </span>
                           )}
                         </div>
 
-                        <div className="flex items-center gap-1.5 truncate text-slate-300 text-[10.5px] sm:text-[11px]">
-                          <span className="font-bold text-white font-mono shrink-0">{cartTotals.totalUnits} items</span>
-                          <span className="text-slate-500">•</span>
+                        <div className="flex items-center gap-1.5 truncate text-[#555555] text-[10.5px] sm:text-[11px]">
+                          <span className="font-bold text-[#111111] font-mono shrink-0">{cartTotals.totalUnits} items</span>
+                          <span className="text-gray-300">•</span>
                           <span className="truncate">
-                            Envío: <strong className="text-white">{clienteNombre || 'Cliente'}</strong> ({agenciaSeleccionada})
+                            Envío: <strong className="text-[#111111]">{clienteNombre || 'Cliente'}</strong> ({agenciaSeleccionada})
                           </span>
                         </div>
                       </div>
@@ -2504,24 +2539,22 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             e.stopPropagation();
                             setCheckoutStep(1);
                           }}
-                          className="text-[10px] text-amber-300 hover:text-amber-200 underline font-bold cursor-pointer"
+                          className="text-[10px] text-amber-700 hover:text-amber-800 underline font-bold cursor-pointer"
                         >
                           Modificar
                         </button>
-                        <div className={`w-5 h-5 rounded-md bg-white/10 flex items-center justify-center text-slate-300 transition-transform duration-200 ${
-                          isOrderSummaryExpanded ? 'rotate-180 text-amber-400' : ''
+                        <div className={`w-5 h-5 rounded-md bg-gray-200 flex items-center justify-center text-gray-600 transition-transform duration-200 ${
+                          isOrderSummaryExpanded ? 'rotate-180 text-amber-600' : ''
                         }`}>
                           <ChevronDown size={12} />
                         </div>
                       </div>
                     </div>
 
-                    {/* Desplegable con detalle completo de productos y datos de envío */}
                     {isOrderSummaryExpanded && (
-                      <div className="p-3 border-t border-white/10 bg-black/40 space-y-3 animate-fade-in text-xs">
-                        {/* Lista de todos los productos seleccionados */}
+                      <div className="p-3 border-t border-gray-200 bg-white space-y-3 animate-fade-in text-xs">
                         <div className="space-y-1.5">
-                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-[#555555] block">
                             Productos en tu pedido ({cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'unidad' : 'unidades'}):
                           </span>
                           <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
@@ -2530,28 +2563,28 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               return (
                                 <div
                                   key={`expanded-item-${item.product.id}-${idx}`}
-                                  className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white/5 border border-white/5"
+                                  className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-gray-50 border border-gray-200"
                                 >
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <div className="w-8 h-8 rounded-lg bg-black/60 border border-white/10 overflow-hidden shrink-0">
+                                    <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 overflow-hidden shrink-0">
                                       {imgUrl ? (
                                         <img src={imgUrl} alt={item.product.nombre} className="w-full h-full object-cover" />
                                       ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-[9px] text-slate-500">
+                                        <div className="w-full h-full flex items-center justify-center text-[9px] text-gray-400">
                                           🛍️
                                         </div>
                                       )}
                                     </div>
                                     <div className="min-w-0">
-                                      <p className="text-[11px] font-bold text-white truncate leading-tight">
+                                      <p className="text-[11px] font-bold text-[#111111] truncate leading-tight">
                                         {item.product.nombre}
                                       </p>
-                                      <span className="text-[9.5px] text-slate-400">
-                                        Cant: <strong className="text-amber-300 font-mono">{item.quantity}</strong> × ${item.precio_unitario.toFixed(2)} USD
+                                      <span className="text-[9.5px] text-[#555555]">
+                                        Cant: <strong className="text-[#111111] font-mono">{item.quantity}</strong> × ${item.precio_unitario.toFixed(2)} USD
                                       </span>
                                     </div>
                                   </div>
-                                  <span className="text-[11px] font-mono font-bold text-amber-400 shrink-0">
+                                  <span className="text-[11px] font-mono font-bold text-[#111111] shrink-0">
                                     ${item.subtotal.toFixed(2)}
                                   </span>
                                 </div>
@@ -2560,23 +2593,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           </div>
                         </div>
 
-                        {/* Mini resumen de datos de envío del cliente */}
-                        <div className="pt-2 border-t border-white/10 space-y-1 text-[10.5px]">
-                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                        {/* Mini resumen de datos de envío */}
+                        <div className="pt-2 border-t border-gray-200 space-y-1 text-[10.5px]">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-[#555555] block">
                             Datos de Envío Registrados:
                           </span>
-                          <div className="bg-[#07090e] p-2 rounded-xl border border-white/5 grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-300">
+                          <div className="bg-gray-50 p-2 rounded-xl border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[#555555]">
                             <div>
-                              <span className="text-slate-500 block text-[9px] uppercase font-bold">Destinatario:</span>
-                              <span className="text-white font-semibold">{clienteNombre || 'Sin nombre'} ({clienteCedula || 'Sin cédula'})</span>
+                              <span className="text-gray-400 block text-[9px] uppercase font-bold">Destinatario:</span>
+                              <span className="text-[#111111] font-semibold">{clienteNombre || 'Sin nombre'} ({clienteCedula || 'Sin cédula'})</span>
                             </div>
                             <div>
-                              <span className="text-slate-500 block text-[9px] uppercase font-bold">Teléfono / WhatsApp:</span>
-                              <span className="text-white font-semibold">{clienteTelefono || 'Sin teléfono'}</span>
+                              <span className="text-gray-400 block text-[9px] uppercase font-bold">Teléfono / WhatsApp:</span>
+                              <span className="text-[#111111] font-semibold">{clienteTelefono || 'Sin teléfono'}</span>
                             </div>
                             <div className="sm:col-span-2">
-                              <span className="text-slate-500 block text-[9px] uppercase font-bold">Agencia & Dirección:</span>
-                              <span className="text-amber-300 font-semibold">{agenciaSeleccionada}: {direccionAgencia || 'Sin dirección especificada'}</span>
+                              <span className="text-gray-400 block text-[9px] uppercase font-bold">Agencia & Dirección:</span>
+                              <span className="text-[#111111] font-semibold">{agenciaSeleccionada}: {direccionAgencia || 'Sin dirección especificada'}</span>
                             </div>
                           </div>
                         </div>
@@ -2589,10 +2622,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     <button
                       type="submit"
                       disabled={isSubmittingOrder || isUploadingReceipt}
-                      className={`w-full py-3 disabled:opacity-50 text-black font-anton tracking-wider text-sm sm:text-base uppercase rounded-xl flex items-center justify-center gap-2 shadow-xl cursor-pointer active:scale-98 transition-all ${
+                      className={`w-full py-3 disabled:opacity-50 text-[#111111] font-anton tracking-wider text-sm sm:text-base uppercase rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all ${
                         tipoConfirmacion === 'comprobante'
-                          ? 'bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-500 hover:from-emerald-300 hover:to-teal-300 shadow-emerald-500/20'
-                          : 'bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 shadow-amber-500/20'
+                          ? 'bg-emerald-400 hover:bg-emerald-300 shadow-emerald-500/20'
+                          : 'bg-[#FFC107] hover:bg-[#ffb300] shadow-amber-400/20'
                       }`}
                     >
                       <CheckCircle2 size={16} />
@@ -2605,7 +2638,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       </span>
                     </button>
 
-                    <div className="text-[10px] text-center text-slate-400 font-medium">
+                    <div className="text-[10px] text-center text-[#555555] font-medium">
                       {tipoConfirmacion === 'comprobante' ? (
                         <EditableStoreText
                           textKey="receiptNotice"
@@ -2636,22 +2669,22 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* ORDER SUCCESS SCREEN                                      */}
       {/* ========================================================= */}
       {completedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
-          <div className="relative bg-[#0e121b] border-2 border-emerald-500/40 rounded-3xl w-full max-w-lg max-h-[calc(100dvh-2.5rem)] overflow-y-auto p-5 sm:p-7 text-center space-y-5 shadow-2xl animate-scale-up my-auto custom-scrollbar">
-            {/* Botón X roja visible en la esquina superior derecha */}
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
+          <div className="relative bg-white border-2 border-emerald-500/50 rounded-3xl w-full max-w-lg max-h-[calc(100dvh-2.5rem)] overflow-y-auto p-5 sm:p-7 text-center space-y-5 shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111]">
+            {/* Botón X visible en la esquina superior derecha */}
             <button
               type="button"
               onClick={() => setCompletedOrder(null)}
-              className="absolute top-4 right-4 w-9 h-9 rounded-xl bg-red-500/15 hover:bg-red-600 text-red-500 hover:text-white border-2 border-red-500/60 hover:border-red-600 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-md shadow-red-500/20 z-10 shrink-0"
+              className="absolute top-4 right-4 w-9 h-9 rounded-xl bg-gray-100 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs z-10 shrink-0"
               title="Cerrar ventana"
               aria-label="Cerrar ventana"
             >
-              <X size={18} strokeWidth={3} />
+              <X size={18} strokeWidth={2.5} />
             </button>
-            <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-xl ${
+            <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-md ${
               completedOrder.tipo_confirmacion === 'comprobante_automatico'
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-emerald-500/20'
-                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-amber-500/20'
+                ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                : 'bg-amber-100 text-amber-700 border border-amber-300'
             }`}>
               <CheckCircle2 size={32} />
             </div>
@@ -2665,11 +2698,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 as="span"
                 className={`inline-block text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border font-mono ${
                   completedOrder.tipo_confirmacion === 'comprobante_automatico'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-amber-50 text-amber-800 border-amber-300'
                 }`}
               />
-              <h3 className="font-anton text-2xl sm:text-3xl uppercase tracking-wider text-white">
+              <h3 className="font-anton text-2xl sm:text-3xl uppercase tracking-wider text-[#111111]">
                 #{completedOrder.numero_pedido}
               </h3>
               <EditableStoreText
@@ -2678,45 +2711,45 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 isAdmin={isAdmin}
                 onOpenEditor={handleOpenTextEditorFor}
                 as="p"
-                className="text-xs text-slate-300 font-medium"
+                className="text-xs text-[#555555] font-medium"
               />
             </div>
 
             {/* Order Details Card */}
-            <div className="bg-[#141926] border border-white/10 rounded-2xl p-4 text-left space-y-2 text-xs">
-              <div className="flex justify-between border-b border-white/5 pb-2">
-                <span className="text-slate-400">Cliente:</span>
-                <span className="font-bold text-white">{completedOrder.cliente_nombre}</span>
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-left space-y-2 text-xs">
+              <div className="flex justify-between border-b border-gray-200 pb-2">
+                <span className="text-[#555555]">Cliente:</span>
+                <span className="font-bold text-[#111111]">{completedOrder.cliente_nombre}</span>
               </div>
-              <div className="flex justify-between border-b border-white/5 pb-2">
-                <span className="text-slate-400">Cédula:</span>
-                <span className="font-bold font-mono text-white">{completedOrder.cliente_cedula}</span>
+              <div className="flex justify-between border-b border-gray-200 pb-2">
+                <span className="text-[#555555]">Cédula:</span>
+                <span className="font-bold font-mono text-[#111111]">{completedOrder.cliente_cedula}</span>
               </div>
-              <div className="flex justify-between border-b border-white/5 pb-2">
-                <span className="text-slate-400">Teléfono:</span>
-                <span className="font-bold font-mono text-white">{completedOrder.cliente_telefono}</span>
+              <div className="flex justify-between border-b border-gray-200 pb-2">
+                <span className="text-[#555555]">Teléfono:</span>
+                <span className="font-bold font-mono text-[#111111]">{completedOrder.cliente_telefono}</span>
               </div>
-              <div className="border-b border-white/5 pb-2">
-                <span className="text-slate-400 block mb-0.5">Agencia de Envío:</span>
-                <span className="font-bold text-amber-300 text-[11px] block">{completedOrder.direccion_agencia_envio}</span>
+              <div className="border-b border-gray-200 pb-2">
+                <span className="text-[#555555] block mb-0.5">Agencia de Envío:</span>
+                <span className="font-bold text-[#111111] text-[11px] block">{completedOrder.direccion_agencia_envio}</span>
               </div>
               {completedOrder.referencia_pago && (
-                <div className="flex justify-between border-b border-white/5 pb-2">
-                  <span className="text-slate-400">N° Referencia:</span>
-                  <span className="font-bold font-mono text-emerald-400">{completedOrder.referencia_pago}</span>
+                <div className="flex justify-between border-b border-gray-200 pb-2">
+                  <span className="text-[#555555]">N° Referencia:</span>
+                  <span className="font-bold font-mono text-emerald-700">{completedOrder.referencia_pago}</span>
                 </div>
               )}
               {completedOrder.comprobante_url && (
-                <div className="border-b border-white/5 pb-2 flex items-center justify-between">
-                  <span className="text-slate-400">Comprobante Adjunto:</span>
-                  <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                <div className="border-b border-gray-200 pb-2 flex items-center justify-between">
+                  <span className="text-[#555555]">Comprobante Adjunto:</span>
+                  <span className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
                     <CheckCircle2 size={11} /> Recibido en sistema
                   </span>
                 </div>
               )}
               <div className="flex justify-between pt-1 font-mono">
-                <span className="text-slate-300 font-bold uppercase">Total del Pedido:</span>
-                <span className="text-base font-black text-emerald-400">${completedOrder.totalUSD.toFixed(2)} USD (Bs. {completedOrder.totalBS.toFixed(2)})</span>
+                <span className="text-[#111111] font-bold uppercase">Total del Pedido:</span>
+                <span className="text-base font-black text-emerald-700">${completedOrder.totalUSD.toFixed(2)} USD (Bs. {completedOrder.totalBS.toFixed(2)})</span>
               </div>
             </div>
 
@@ -2725,10 +2758,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <button
                 type="button"
                 onClick={() => handleSendToWhatsApp(completedOrder)}
-                className={`w-full py-3.5 text-black font-anton uppercase text-sm rounded-2xl flex items-center justify-center gap-2 shadow-xl cursor-pointer active:scale-95 transition-all ${
+                className={`w-full py-3.5 font-anton uppercase text-sm rounded-2xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95 transition-all ${
                   completedOrder.tipo_confirmacion === 'comprobante_automatico'
-                    ? 'bg-white/10 hover:bg-white/20 text-white border border-white/15'
-                    : 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/25'
+                    ? 'bg-gray-100 hover:bg-gray-200 text-[#111111] border border-gray-300'
+                    : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/25'
                 }`}
               >
                 <Share2 size={16} />
@@ -2742,7 +2775,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <button
                 type="button"
                 onClick={() => setCompletedOrder(null)}
-                className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-black uppercase rounded-xl transition-all cursor-pointer"
+                className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-[#111111] text-xs font-black uppercase rounded-xl transition-all cursor-pointer"
               >
                 Seguir Comprando
               </button>
@@ -2776,10 +2809,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         const qvInStock = (activeQV.stock_disponible || 0) > 0;
 
         return (
-          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
-            <div className="relative bg-[#0e121b] border-2 border-amber-500/30 rounded-3xl w-full max-w-3xl max-h-[calc(100dvh-2.5rem)] flex flex-col md:flex-row overflow-y-auto md:overflow-hidden shadow-2xl animate-scale-up my-auto custom-scrollbar">
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
+            <div className="relative bg-white border border-gray-200 rounded-3xl w-full max-w-3xl max-h-[calc(100dvh-2.5rem)] flex flex-col md:flex-row overflow-y-auto md:overflow-hidden shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111]">
               
-              {/* Botón X Roja Siempre Fijo en la Esquina Superior Derecha */}
+              {/* Botón X Siempre Fijo en la Esquina Superior Derecha */}
               <button
                 type="button"
                 onClick={() => {
@@ -2787,15 +2820,15 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   setQuickViewActiveVariant(null);
                   setQuickViewImageIndex(0);
                 }}
-                className="absolute top-4 right-4 z-30 w-9 h-9 rounded-xl bg-red-500/15 hover:bg-red-600 text-red-500 hover:text-white border-2 border-red-500/60 hover:border-red-600 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-md shadow-red-500/20 shrink-0"
+                className="absolute top-4 right-4 z-30 w-9 h-9 rounded-xl bg-gray-100 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0"
                 title="Cerrar ventana"
                 aria-label="Cerrar ventana"
               >
-                <X size={18} strokeWidth={3} />
+                <X size={18} strokeWidth={2.5} />
               </button>
 
-              {/* Columna Izquierda: Carrusel Completo con Flechas, Swipe y Miniaturas */}
-              <div className="w-full md:w-1/2 bg-[#07090e] p-4 sm:p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-white/10">
+              {/* Columna Izquierda: Carrusel Completo */}
+              <div className="w-full md:w-1/2 bg-gray-50 p-4 sm:p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-gray-200">
                 <StoreImageCarousel
                   images={qvImages}
                   currentIndex={quickViewImageIndex}
@@ -2809,18 +2842,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               {/* Columna Derecha: Información y Selector Visual de Variantes */}
               <div className="w-full md:w-1/2 p-5 sm:p-6 flex flex-col justify-between space-y-4 pr-12 sm:pr-14">
                 <div className="space-y-3">
-                  <h3 className="font-anton text-lg sm:text-2xl uppercase tracking-wide text-white leading-tight">
+                  <h3 className="font-anton text-lg sm:text-2xl uppercase tracking-wide text-[#111111] leading-tight">
                     {activeQV.grupo_nombre || activeQV.nombre}
                   </h3>
 
                   {/* SELECTOR VISUAL DE VARIANTES POR MINIATURAS EN QUICKVIEW */}
                   {qvVariants.length > 1 && (
-                    <div className="pt-2 pb-2 space-y-2 border-t border-b border-white/10">
+                    <div className="pt-2 pb-2 space-y-2 border-t border-b border-gray-100">
                       <div className="flex items-center justify-between text-[9.5px]">
-                        <span className="text-amber-400 font-black uppercase flex items-center gap-1.5">
-                          <Boxes size={12} className="text-amber-400" />
+                        <span className="text-[#555555] font-black uppercase flex items-center gap-1.5">
+                          <Boxes size={12} className="text-amber-500" />
                           <span>Modelo Seleccionado:</span>
-                          <strong className="text-white text-[11px] underline">
+                          <strong className="text-[#111111] text-[11px] underline">
                             {activeQV.variante_nombre || activeQV.nombre}
                           </strong>
                         </span>
@@ -2841,12 +2874,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                 setQuickViewImageIndex(0);
                                 setQuickViewQty(1);
                               }}
-                              className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer relative bg-black/60 flex items-center justify-center ${
+                              className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
                                 isSelected
-                                  ? 'border-amber-400 ring-2 ring-amber-400/50 scale-105 shadow-md shadow-amber-400/30 z-10'
+                                  ? 'border-[#FFC107] ring-2 ring-[#FFC107]/50 scale-105 shadow-sm z-10'
                                   : vStock
-                                  ? 'border-white/15 opacity-75 hover:opacity-100 hover:border-white/40'
-                                  : 'border-white/5 opacity-40 line-through'
+                                  ? 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
+                                  : 'border-gray-200 opacity-40 line-through'
                               }`}
                               title={v.variante_nombre || v.nombre}
                             >
@@ -2860,12 +2893,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                   }}
                                 />
                               ) : (
-                                <span className="text-[8px] font-black text-slate-400 uppercase text-center p-0.5 truncate leading-none">
+                                <span className="text-[8px] font-black text-gray-500 uppercase text-center p-0.5 truncate leading-none">
                                   {(v.variante_nombre || v.nombre).slice(0, 4)}
                                 </span>
                               )}
                               {!vStock && (
-                                <span className="absolute inset-0 bg-black/60 flex items-center justify-center text-rose-400 text-[9px] font-black">
+                                <span className="absolute inset-0 bg-white/70 flex items-center justify-center text-rose-600 text-[9px] font-black">
                                   ✕
                                 </span>
                               )}
@@ -2876,25 +2909,25 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-                  {/* Precios (Idénticos al catálogo exterior: fuente limpia mono) */}
+                  {/* Precios: fuente limpia mono en Naranja de Alta Conversión #FF5200 */}
                   <div className="pt-1 font-mono">
-                    <div className="text-xl sm:text-2xl font-black text-amber-400 tracking-tight">
+                    <div className="text-2xl sm:text-3xl font-black text-[#FF5200] tracking-tight">
                       ${qvPriceUSD.toFixed(2)} USD
                     </div>
-                    <p className="text-xs text-slate-300 font-semibold mt-0.5">
-                      ≈ Bs. {qvPriceBS.toFixed(2)} <span className="text-slate-400 font-normal text-[10px]">(Tasa BCV: {tasaBCV.toFixed(2)})</span>
+                    <p className="text-xs text-[#4B5563] font-semibold mt-0.5">
+                      ≈ Bs. {qvPriceBS.toFixed(2)} <span className="text-[#4B5563] font-normal text-[10px]">(Tasa BCV: {tasaBCV.toFixed(2)})</span>
                     </p>
                   </div>
 
-                  {/* Stock info con urgencia inteligente (Cero números innecesarios) */}
+                  {/* Stock info con urgencia inteligente */}
                   <div>
                     {!qvInStock ? (
-                      <span className="text-xs font-bold text-rose-400 flex items-center gap-1">
+                      <span className="text-xs font-bold text-rose-600 flex items-center gap-1">
                         <AlertCircle size={13} />
                         Agotado temporalmente
                       </span>
                     ) : activeQV.stock_disponible <= 6 ? (
-                      <span className="text-[11px] font-bold text-orange-400 flex items-center gap-1.5 bg-orange-500/10 border border-orange-500/25 px-2.5 py-1 rounded-xl inline-flex">
+                      <span className="text-[11px] font-bold text-[#FF5722] flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl inline-flex">
                         <span className="animate-pulse">⏳</span>
                         <span>Casi agotado</span>
                       </span>
@@ -2902,35 +2935,35 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   </div>
 
                   {activeQV.palabras_clave && (
-                    <p className="text-[11px] text-slate-400 pt-1 line-clamp-3">
+                    <p className="text-[11px] text-[#555555] pt-1 line-clamp-3">
                       {activeQV.palabras_clave}
                     </p>
                   )}
                 </div>
 
                 {/* Selector de Cantidad y Botones de Acción */}
-                <div className="pt-3 border-t border-white/10 space-y-2.5">
+                <div className="pt-3 border-t border-gray-100 space-y-2.5">
                   {qvInStock && (
-                    <div className="flex items-center justify-between bg-black/40 border border-white/10 rounded-xl px-3 py-1.5">
-                      <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Cantidad:</span>
+                    <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5">
+                      <span className="text-[11px] font-bold text-[#555555] uppercase tracking-wider">Cantidad:</span>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => setQuickViewQty((prev) => Math.max(1, prev - 1))}
                           disabled={quickViewQty <= 1}
-                          className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white font-bold flex items-center justify-center transition-colors cursor-pointer"
+                          className="w-7 h-7 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-30 text-[#111111] font-bold flex items-center justify-center transition-colors cursor-pointer"
                           aria-label="Disminuir cantidad"
                         >
                           <Minus size={13} />
                         </button>
-                        <span className="font-mono font-bold text-white text-sm w-7 text-center">
+                        <span className="font-mono font-bold text-[#111111] text-sm w-7 text-center">
                           {quickViewQty}
                         </span>
                         <button
                           type="button"
                           onClick={() => setQuickViewQty((prev) => Math.min(activeQV.stock_disponible || 99, prev + 1))}
                           disabled={quickViewQty >= (activeQV.stock_disponible || 99)}
-                          className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white font-bold flex items-center justify-center transition-colors cursor-pointer"
+                          className="w-7 h-7 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-30 text-[#111111] font-bold flex items-center justify-center transition-colors cursor-pointer"
                           aria-label="Aumentar cantidad"
                         >
                           <Plus size={13} />
@@ -2939,7 +2972,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-                  {/* Botón Agregar al Carrito (No cierra la ventana para permitir agregar más variantes) */}
+                  {/* Botón Agregar al Carrito (#FFC107) */}
                   <button
                     type="button"
                     onClick={() => {
@@ -2948,10 +2981,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       setTimeout(() => setQuickViewAdded(false), 2200);
                     }}
                     disabled={!qvInStock}
-                    className={`w-full py-2.5 rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-98 ${
+                    className={`w-full py-2.5 rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-all active:scale-98 ${
                       quickViewAdded
-                        ? 'bg-emerald-400 text-black shadow-emerald-500/20'
-                        : 'bg-amber-400 hover:bg-amber-300 text-black shadow-amber-400/20 disabled:opacity-30'
+                        ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                        : 'bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] shadow-amber-400/20 disabled:opacity-30'
                     }`}
                   >
                     {quickViewAdded ? (
@@ -2975,11 +3008,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       setQuickViewActiveVariant(null);
                       setIsCartOpen(true);
                     }}
-                    className="w-full py-2 bg-white/5 hover:bg-white/10 border border-white/15 text-white rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    className="w-full py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-[#FF5200] rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                   >
-                    <ShoppingCart size={13} className="text-amber-400" />
+                    <ShoppingCart size={13} className="text-[#FF5200]" />
                     <span>Ir al Carrito ({cartTotals.totalUnits})</span>
-                    <ArrowRight size={12} className="text-slate-400" />
+                    <ArrowRight size={12} className="text-[#FF5200]" />
                   </button>
                 </div>
               </div>
@@ -2989,12 +3022,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       })()}
 
       {/* ========================================================= */}
-      {/* STORE FOOTER                                              */}
+      {/* STORE FOOTER (Anclaje de Marca en #0F1115)                 */}
       {/* ========================================================= */}
-      <footer className="bg-[#040609] border-t border-white/10 py-10 px-4 sm:px-6 text-slate-400 text-xs">
+      <footer className="bg-[#0F1115] border-t border-gray-800 py-10 px-4 sm:px-6 text-gray-400 text-xs">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
           <div>
-            <h4 className="font-anton text-lg tracking-wider uppercase text-amber-400">
+            <h4 className="font-anton text-lg tracking-wider uppercase text-[#FFC107]">
               Lo que los bikers quieren
             </h4>
             <div className="mt-0.5">
@@ -3004,21 +3037,21 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 isAdmin={isAdmin}
                 onOpenEditor={handleOpenTextEditorFor}
                 as="p"
-                className="text-[11px] text-slate-500"
+                className="text-[11px] text-gray-400"
               />
             </div>
           </div>
 
           <div className="flex items-center gap-4 text-[11px] font-bold">
-            <span className="text-slate-400">Envíos: MRW • Zoom • Tealca • Domesa</span>
-            <span>•</span>
-            <span className="text-emerald-400">Tasa BCV Garantizada</span>
+            <span className="text-gray-300">Envíos: MRW • Zoom • Tealca • Domesa</span>
+            <span className="text-gray-600">•</span>
+            <span className="text-emerald-400">Tasa BCV Oficial Garantizada</span>
           </div>
         </div>
       </footer>
 
       {/* ========================================================= */}
-      {/* FLOATING CART BUBBLE (MITAD DEL LADO DERECHO)             */}
+      {/* FLOATING CART BUBBLE (Naranja de Alta Conversión #FF5200)   */}
       {/* ========================================================= */}
       <aside 
         className="fixed right-2 sm:right-5 top-1/2 -translate-y-1/2 z-40"
@@ -3027,25 +3060,26 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         <button
           type="button"
           onClick={() => setIsCartOpen(true)}
-          className="group relative flex items-center gap-2.5 sm:gap-3 bg-[#090d16] hover:bg-[#0f1422] text-white pl-3.5 pr-4 sm:pr-5 py-3 rounded-full font-black uppercase shadow-[0_4px_25px_rgba(245,158,11,0.45)] hover:shadow-[0_4px_30px_rgba(245,158,11,0.65)] border-2 border-amber-400 active:scale-95 transition-all cursor-pointer backdrop-blur-md"
+          style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.06)' }}
+          className="group relative flex items-center gap-2.5 sm:gap-3 bg-[#FF5200] hover:bg-[#e04800] text-white pl-3.5 pr-4 sm:pr-5 py-3 rounded-full font-black uppercase border border-white/60 active:scale-95 transition-all cursor-pointer"
           title="Ir al Carrito de Compras"
         >
           <div className="relative flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-400 to-amber-300 text-black flex items-center justify-center font-black shadow-md">
-              <ShoppingCart size={17} className="stroke-[2.5] text-black" />
+            <div className="w-8 h-8 rounded-full bg-white text-[#FF5200] flex items-center justify-center font-black">
+              <ShoppingCart size={17} className="stroke-[2.5]" />
             </div>
             {cartTotals.totalUnits > 0 && (
-              <span className="absolute -top-1.5 -right-2 min-w-[20px] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center border-2 border-[#090d16] shadow-md animate-scale-up">
+              <span className="absolute -top-1.5 -right-2 min-w-[20px] h-5 px-1 rounded-full bg-[#FFC107] text-[#111111] text-[10px] font-black flex items-center justify-center border-2 border-white animate-scale-up">
                 {cartTotals.totalUnits}
               </span>
             )}
           </div>
           
           <div className="flex flex-col text-left leading-tight">
-            <span className="font-anton tracking-wider text-xs sm:text-sm uppercase text-amber-300 group-hover:text-amber-200 whitespace-nowrap drop-shadow-sm">
+            <span className="font-anton tracking-wider text-xs sm:text-sm uppercase text-white whitespace-nowrap">
               Ir al Carrito
             </span>
-            <span className="text-[10px] sm:text-[11px] font-mono font-black text-white whitespace-nowrap drop-shadow-sm">
+            <span className="text-[10px] sm:text-[11px] font-mono font-black text-white/90 whitespace-nowrap">
               {cartTotals.totalUSD > 0 ? `$${cartTotals.totalUSD.toFixed(2)} USD` : '0 productos'}
             </span>
           </div>

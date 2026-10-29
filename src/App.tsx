@@ -38,7 +38,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col justify-between selection:bg-amber-400 selection:text-black">
+    <div className="min-h-screen bg-white text-[#111111] flex flex-col justify-between selection:bg-[#FFC107] selection:text-black">
       {/* Tienda Oficial */}
       <BikerStore isAdmin={isAdmin} />
 
@@ -47,36 +47,36 @@ export default function App() {
         <button
           type="button"
           onClick={handleToggleAdmin}
-          className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-1.5 shadow-lg border transition-all cursor-pointer backdrop-blur-md ${
+          className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-1.5 shadow-md border transition-all cursor-pointer backdrop-blur-md ${
             isAdmin
-              ? 'bg-amber-400 text-black border-amber-300 ring-2 ring-amber-400/40 font-black'
-              : 'bg-black/40 hover:bg-black/80 text-slate-400 hover:text-white border-white/10 opacity-30 hover:opacity-100'
+              ? 'bg-[#FFC107] text-[#111111] border-amber-400 ring-2 ring-amber-400/40 font-black'
+              : 'bg-white/90 hover:bg-white text-gray-600 hover:text-black border-gray-200 shadow-sm opacity-60 hover:opacity-100'
           }`}
           title={isAdmin ? 'Modo Editor Activo (puedes editar textos y categorías)' : 'Acceso Administrador'}
         >
-          {isAdmin ? <Unlock size={11} className="text-black" /> : <Lock size={11} />}
+          {isAdmin ? <Unlock size={11} className="text-[#111111]" /> : <Lock size={11} />}
           <span>{isAdmin ? 'Modo Editor Activo' : 'Dueño'}</span>
         </button>
       </div>
 
       {/* Modal PIN de Acceso para el Dueño */}
       {showPinModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0e121b] border border-amber-500/40 rounded-2xl p-5 max-w-xs w-full shadow-2xl space-y-4 animate-scale-up">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 max-w-xs w-full shadow-2xl space-y-4 animate-scale-up">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-400/20 text-amber-400 flex items-center justify-center font-bold">
-                  <ShieldCheck size={16} />
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-[#FFC107] border border-amber-200 flex items-center justify-center font-bold">
+                  <ShieldCheck size={16} className="text-amber-600" />
                 </div>
                 <div>
-                  <h4 className="font-anton text-base uppercase text-white tracking-wider">Acceso Dueño</h4>
-                  <p className="text-[10px] text-slate-400">Introduce el PIN de edición</p>
+                  <h4 className="font-anton text-base uppercase text-[#111111] tracking-wider">Acceso Dueño</h4>
+                  <p className="text-[10px] text-[#555555]">Introduce el PIN de edición</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowPinModal(false)}
-                className="text-slate-400 hover:text-white text-sm cursor-pointer"
+                className="text-gray-400 hover:text-black text-sm cursor-pointer"
               >
                 ✕
               </button>
@@ -92,24 +92,24 @@ export default function App() {
                   setPinError('');
                 }}
                 placeholder="PIN (por defecto: 1234)"
-                className="w-full bg-[#141926] border border-white/15 focus:border-amber-400 p-2.5 rounded-xl text-center text-white font-mono text-lg tracking-widest outline-none"
+                className="w-full bg-gray-50 border border-gray-200 focus:border-[#FFC107] focus:bg-white p-2.5 rounded-xl text-center text-[#111111] font-mono text-lg tracking-widest outline-none transition-colors"
               />
 
               {pinError && (
-                <p className="text-rose-400 text-[10.5px] font-bold text-center">{pinError}</p>
+                <p className="text-rose-600 text-[10.5px] font-bold text-center">{pinError}</p>
               )}
 
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setShowPinModal(false)}
-                  className="flex-1 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white bg-white/5 border border-white/10 cursor-pointer"
+                  className="flex-1 py-2 rounded-xl text-xs font-bold text-[#555555] hover:text-[#111111] bg-gray-100 hover:bg-gray-200 border border-gray-200 cursor-pointer transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 rounded-xl text-xs font-black uppercase text-black bg-amber-400 hover:bg-amber-300 shadow-md cursor-pointer"
+                  className="flex-1 py-2 rounded-xl text-xs font-black uppercase text-[#111111] bg-[#FFC107] hover:bg-[#ffb300] shadow-sm cursor-pointer transition-colors"
                 >
                   Entrar
                 </button>

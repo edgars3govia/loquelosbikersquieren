@@ -44,7 +44,8 @@ export const DEFAULT_STORE_TEXTS: Required<StoreCustomTexts> = {
   receiptNotice: "Al confirmar con comprobante, la venta se registrará de una vez en ingresos y el stock se descontará automáticamente.",
   orderSuccessTitle: "¡PEDIDO RECIBIDO CON ÉXITO!",
   orderSuccessSubtitle: "Tu orden ha sido registrada en el sistema de Lo que los bikers quieren",
-  footerTagline: "Pasión por las dos ruedas • Accesorios y equipamiento para motociclistas"
+  footerTagline: "Pasión por las dos ruedas • Accesorios y equipamiento para motociclistas",
+  searchPlaceholder: "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."
 };
 
 interface StoreTextEditorModalProps {
@@ -82,6 +83,11 @@ const TEXT_GROUPS: TextGroup[] = [
         key: 'headerSubtitle',
         label: 'Subtítulo del Logo',
         description: 'Texto que acompaña al logo en el encabezado'
+      },
+      {
+        key: 'searchPlaceholder',
+        label: 'Texto Interno del Buscador (Placeholder)',
+        description: 'Texto de sugerencia dentro de la barra de búsqueda'
       },
       {
         key: 'heroTitle',

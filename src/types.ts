@@ -236,6 +236,7 @@ export interface StoreCustomTexts {
   orderSuccessTitle?: string;
   orderSuccessSubtitle?: string;
   footerTagline?: string;
+  searchPlaceholder?: string;
   [key: string]: string | undefined;
 }
 
