@@ -363,7 +363,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     factorComisionBarco: 1.07
   },
   onExitToAdmin,
-  isAdmin = true
+  isAdmin = false
 }) => {
   // Exchange rate: Live official BCV rate (ve.dolarapi.com) + Cache + Firestore sync
   const [liveTasaBCV, setLiveTasaBCV] = useState<number>(() => {
