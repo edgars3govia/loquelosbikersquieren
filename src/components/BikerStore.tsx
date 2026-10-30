@@ -1760,7 +1760,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
   // Copy store link
   const handleCopyStoreLink = () => {
-    const url = window.location.origin + window.location.pathname + '?tienda=true';
+    const url = 'https://loquelosbikersquieren.vercel.app/';
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2200);

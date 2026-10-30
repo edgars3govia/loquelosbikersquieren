@@ -1,6 +1,6 @@
 {
   "name": "Lo que los Bikers quieren",
-  "description": "Tienda oficial de repuestos, accesorios y equipamiento biker. Haz tu pedido en línea con entregas a todo el país.",
+  "description": "Accesorios y equipamiento biker. Haz tu pedido en línea con entregas a todo el país.",
   "permissions": [],
   "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
