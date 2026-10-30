@@ -1707,7 +1707,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       agencyAddress = parts.slice(1).join(':').trim();
     }
 
-    let text = `🏍️ *NUEVO PEDIDO: LO QUE LOS BIKERS QUIEREN*\n`;
+    const isPaid = order.tipo_confirmacion === 'comprobante_automatico';
+
+    let text = isPaid
+      ? `🏍️ *PEDIDO PAGADO: LO QUE LOS BIKERS QUIEREN*\n`
+      : `🏍️ *NUEVO PEDIDO (POR CONCRETAR): LO QUE LOS BIKERS QUIEREN*\n`;
     text += `Ref: #${order.numero_pedido}\n\n`;
     
     text += `👤 *DATOS DE ENVÍO*\n`;
@@ -1725,13 +1729,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     text += `• *USD:* $${order.totalUSD.toFixed(2)} (BCV)\n\n`;
 
     text += `*Método de Pago:* ${order.metodo_pago || 'Pago Móvil'}\n`;
-    text += `• *Monto a transferir:* Bs. ${formatVES(order.totalBS)}`;
+    text += `• *Monto a transferir:* Bs. ${formatVES(order.totalBS)} ${isPaid ? '(pagado)' : '(pago pendiente)'}`;
 
     if (order.referencia_pago) {
       text += `\n• *Referencia:* ${order.referencia_pago}`;
     }
+    if (isPaid && order.comprobante_url) {
+      text += `\n• *Comprobante:* Adjuntado en la tienda web`;
+    }
     if (order.notas_cliente) {
       text += `\n• *Notas:* ${order.notas_cliente}`;
+    }
+
+    if (!isPaid) {
+      text += `\n\n💬 *Hola, quiero concretar mi pedido y coordinar el pago con ustedes.*`;
     }
 
     return text;
@@ -3133,31 +3144,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-                  {/* WhatsApp Active Notice (if user clicked escape hatch) */}
-                  {tipoConfirmacion === 'whatsapp' && (
-                    <div className="bg-[#25D366]/10 border border-[#25D366]/30 rounded-2xl p-3 flex items-start justify-between gap-3 shadow-xs">
-                      <div className="flex items-start gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-[#25D366]/20 flex items-center justify-center shrink-0 mt-0.5">
-                          <img src="/whatsapp.png" alt="WhatsApp" className="w-5 h-5 object-contain shrink-0" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold text-emerald-950 block">
-                            Atención y pago coordinado por WhatsApp
-                          </span>
-                          <span className="text-[10px] text-emerald-900 block leading-tight mt-0.5">
-                            No requieres adjuntar captura aquí. Al presionar confirmar, se abrirá WhatsApp con el resumen de tu pedido para coordinar el pago directamente con un asesor.
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setTipoConfirmacion('comprobante')}
-                        className="text-[10px] font-bold text-[#128C7E] hover:text-[#075E54] underline shrink-0 cursor-pointer pt-0.5 whitespace-nowrap"
-                      >
-                        Subir comprobante
-                      </button>
-                    </div>
-                  )}
+
 
                   {/* SECCIÓN 4: RESUMEN AL FINAL */}
                   <div className="bg-gray-50 border border-gray-200 rounded-2xl overflow-hidden transition-all shadow-xs">
@@ -3314,58 +3301,52 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       </span>
                     </button>
 
-                    <div className="text-[10px] text-center text-[#555555] font-medium">
-                      {tipoConfirmacion === 'comprobante' ? (
-                        <EditableStoreText
-                          textKey="receiptNotice"
-                          value={getText('receiptNotice')}
-                          isAdmin={isAdmin}
-                          onOpenEditor={handleOpenTextEditorFor}
-                          as="p"
-                        />
-                      ) : (
-                        <EditableStoreText
-                          textKey="whatsappNotice"
-                          value={getText('whatsappNotice')}
-                          isAdmin={isAdmin}
-                          onOpenEditor={handleOpenTextEditorFor}
-                          as="p"
-                        />
-                      )}
-                    </div>
+                    {/* Vía de escape y aclaratorias debajo del botón */}
+                    {tipoConfirmacion === 'comprobante' ? (
+                      <div className="space-y-1 text-center pt-0.5">
+                        <p className="text-[10.5px] sm:text-[11px] text-[#555555] font-medium leading-relaxed px-1">
+                          Al confirmar tu orden, se abrirá WhatsApp con el resumen de tu compra para confirmar cada detalle y responder cualquier consulta si lo deseas
+                        </p>
 
-                    {/* Vía de escape secundaria bajo la Ley de Hick */}
-                    <div className="pt-1.5 pb-0.5 text-center">
-                      {tipoConfirmacion === 'comprobante' ? (
-                        <button
-                          type="button"
-                          onClick={() => setTipoConfirmacion('whatsapp')}
-                          className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-[#555555] hover:text-[#111111] transition-colors cursor-pointer group py-1 px-2.5 rounded-lg hover:bg-gray-100"
-                        >
-                          <img src="/whatsapp.png" alt="WhatsApp" className="w-4 h-4 object-contain group-hover:scale-110 transition-transform shrink-0" />
-                          <span>
-                            ¿Tienes problemas para pagar?{' '}
-                            <span className="underline font-bold text-[#128C7E] group-hover:text-[#075E54]">
-                              Escríbenos al WhatsApp
+                        <div className="pt-0.5 pb-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setTipoConfirmacion('whatsapp')}
+                            className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-[#555555] hover:text-[#111111] transition-colors cursor-pointer group py-1 px-2.5 rounded-lg hover:bg-gray-100"
+                          >
+                            <img src="/whatsapp.png" alt="WhatsApp" className="w-4 h-4 object-contain group-hover:scale-110 transition-transform shrink-0" />
+                            <span>
+                              ¿Tienes problemas para pagar?{' '}
+                              <span className="underline font-bold text-[#128C7E] group-hover:text-[#075E54]">
+                                Escríbenos al WhatsApp
+                              </span>
                             </span>
-                          </span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setTipoConfirmacion('comprobante')}
-                          className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-[#555555] hover:text-emerald-700 transition-colors cursor-pointer group py-1 px-2.5 rounded-lg hover:bg-gray-100"
-                        >
-                          <CheckCircle2 size={13} className="text-emerald-600" />
-                          <span>
-                            Prefiero realizar el pago directo y{' '}
-                            <span className="underline font-bold text-emerald-700">
-                              subir comprobante
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1 text-center pt-0.5">
+                        <p className="text-[10.5px] sm:text-[11px] text-[#555555] font-medium leading-relaxed px-1">
+                          Presiona confirmar para realizar el pago y concretar tu pedido con un asesor.
+                        </p>
+
+                        <div className="pt-0.5 pb-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setTipoConfirmacion('comprobante')}
+                            className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-[#555555] hover:text-emerald-700 transition-colors cursor-pointer group py-1 px-2.5 rounded-lg hover:bg-gray-100"
+                          >
+                            <CheckCircle2 size={13} className="text-emerald-600" />
+                            <span>
+                              Prefiero realizar el pago directo y{' '}
+                              <span className="underline font-bold text-emerald-700">
+                                subir comprobante
+                              </span>
                             </span>
-                          </span>
-                        </button>
-                      )}
-                    </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
