@@ -62,7 +62,8 @@ import {
   getSubcategoryKey,
   formatSubcategoryDisplay,
   getProductSubcategoryKeys,
-  getProductSubcategoryNames
+  getProductSubcategoryNames,
+  calculateProductSearchScore
 } from '../utils/textUtils';
 import { StoreCategoriesModal } from './StoreCategoriesModal';
 import { StoreTextEditorModal, DEFAULT_STORE_TEXTS } from './StoreTextEditorModal';
@@ -738,6 +739,41 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     }
   }, [cart]);
 
+  // Permitir cerrar cualquier ventana modal abierta con la tecla Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (quickViewProduct) {
+          setQuickViewProduct(null);
+          setQuickViewActiveVariant(null);
+          setQuickViewImageIndex(0);
+        } else if (completedOrder) {
+          setCompletedOrder(null);
+        } else if (isCheckoutOpen) {
+          setIsCheckoutOpen(false);
+        } else if (isCartOpen) {
+          setIsCartOpen(false);
+        } else if (isCategoryModalOpen) {
+          setIsCategoryModalOpen(false);
+        } else if (isTextEditorOpen) {
+          setIsTextEditorOpen(false);
+        } else if (isPaymentMethodsModalOpen) {
+          setIsPaymentMethodsModalOpen(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    quickViewProduct,
+    completedOrder,
+    isCheckoutOpen,
+    isCartOpen,
+    isCategoryModalOpen,
+    isTextEditorOpen,
+    isPaymentMethodsModalOpen
+  ]);
+
   // Categories list (Deduplicadas canónicamente y filtrando categorías no comerciales, con soporte de múltiples categorías por producto)
   const categories = useMemo(() => {
     const catMap = new Map<string, string>();
@@ -844,7 +880,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
   // Filtered & Sorted Products
   const filteredProducts = useMemo(() => {
-    let result = sourceProducts.filter((p) => {
+    const query = searchQuery.trim();
+    const isSearching = Boolean(query);
+
+    // 1. Filtrado base: productos con precio, con stock y categorías activas
+    const baseProducts = sourceProducts.filter((p) => {
       // Must have price
       const hasPrice = (p.precio_venta_ref && p.precio_venta_ref > 0) || (p.precio_mayor && p.precio_mayor > 0);
       if (!hasPrice) return false;
@@ -861,61 +901,103 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         return false;
       }
 
-      // Category filter (coincidencia con cualquiera de sus categorías asignadas)
-      if (selectedCategory !== 'all') {
-        const targetKey = getCategoryKey(selectedCategory);
-        if (!prodKeys.includes(targetKey)) {
-          return false;
-        }
-      }
-
-      // Subcategory filter: filtrado instantáneo por la subcategoría seleccionada
-      if (selectedSubcategory) {
-        const targetSubKey = getSubcategoryKey(selectedSubcategory);
-        const targetSubNorm = normalizeSearch(selectedSubcategory);
-        const prodSubKeys = getProductSubcategoryKeys(p);
-        let matchesSubcat = prodSubKeys.includes(targetSubKey);
-        if (!matchesSubcat && p.subcategoria) {
-          matchesSubcat = getSubcategoryKey(p.subcategoria) === targetSubKey || normalizeSearch(p.subcategoria) === targetSubNorm;
-        }
-        if (!matchesSubcat && Array.isArray(p.subcategorias)) {
-          matchesSubcat = p.subcategorias.some(s => getSubcategoryKey(s) === targetSubKey || normalizeSearch(s) === targetSubNorm);
-        }
-        if (!matchesSubcat && p.grupo_id) {
-          const groupSiblings = sourceProducts.filter(v => v.grupo_id === p.grupo_id);
-          matchesSubcat = groupSiblings.some(v => {
-            const vKeys = getProductSubcategoryKeys(v);
-            if (vKeys.includes(targetSubKey)) return true;
-            if (v.subcategoria && (getSubcategoryKey(v.subcategoria) === targetSubKey || normalizeSearch(v.subcategoria) === targetSubNorm)) return true;
-            if (Array.isArray(v.subcategorias)) {
-              return v.subcategorias.some(s => getSubcategoryKey(s) === targetSubKey || normalizeSearch(s) === targetSubNorm);
-            }
+      // "QUIERO QUE LA BUSQUEDA ANULE EL FILTRO":
+      // Si el usuario está buscando, se anulan los filtros de categoría y subcategoría para abarcar TODO el catálogo.
+      if (!isSearching) {
+        // Category filter (coincidencia con cualquiera de sus categorías asignadas)
+        if (selectedCategory !== 'all') {
+          const targetKey = getCategoryKey(selectedCategory);
+          if (!prodKeys.includes(targetKey)) {
             return false;
-          });
+          }
         }
-        if (!matchesSubcat) {
-          return false;
-        }
-      }
 
-      // Search match
-      if (searchQuery.trim()) {
-        const matchName = matchesSearch(p.nombre, searchQuery);
-        const matchSku = matchesSearch(p.sku, searchQuery);
-        const matchCat = matchesSearch(p.categoria, searchQuery) || (Array.isArray(p.categorias) && p.categorias.some(c => matchesSearch(c, searchQuery)));
-        const matchSubcat = matchesSearch(p.subcategoria, searchQuery) || (Array.isArray(p.subcategorias) && p.subcategorias.some(s => matchesSearch(s, searchQuery)));
-        const matchKeywords = matchesSearch(p.palabras_clave, searchQuery);
-        const matchGroup = p.grupo_nombre ? matchesSearch(p.grupo_nombre, searchQuery) : false;
-        const matchVariant = p.variante_nombre ? matchesSearch(p.variante_nombre, searchQuery) : false;
-        if (!matchName && !matchSku && !matchCat && !matchSubcat && !matchKeywords && !matchGroup && !matchVariant) {
-          return false;
+        // Subcategory filter: filtrado instantáneo por la subcategoría seleccionada
+        if (selectedSubcategory) {
+          const targetSubKey = getSubcategoryKey(selectedSubcategory);
+          const targetSubNorm = normalizeSearch(selectedSubcategory);
+          const prodSubKeys = getProductSubcategoryKeys(p);
+          let matchesSubcat = prodSubKeys.includes(targetSubKey);
+          if (!matchesSubcat && p.subcategoria) {
+            matchesSubcat = getSubcategoryKey(p.subcategoria) === targetSubKey || normalizeSearch(p.subcategoria) === targetSubNorm;
+          }
+          if (!matchesSubcat && Array.isArray(p.subcategorias)) {
+            matchesSubcat = p.subcategorias.some(s => getSubcategoryKey(s) === targetSubKey || normalizeSearch(s) === targetSubNorm);
+          }
+          if (!matchesSubcat && p.grupo_id) {
+            const groupSiblings = sourceProducts.filter(v => v.grupo_id === p.grupo_id);
+            matchesSubcat = groupSiblings.some(v => {
+              const vKeys = getProductSubcategoryKeys(v);
+              if (vKeys.includes(targetSubKey)) return true;
+              if (v.subcategoria && (getSubcategoryKey(v.subcategoria) === targetSubKey || normalizeSearch(v.subcategoria) === targetSubNorm)) return true;
+              if (Array.isArray(v.subcategorias)) {
+                return v.subcategorias.some(s => getSubcategoryKey(s) === targetSubKey || normalizeSearch(s) === targetSubNorm);
+              }
+              return false;
+            });
+          }
+          if (!matchesSubcat) {
+            return false;
+          }
         }
       }
 
       return true;
     });
 
-    // Sorting
+    // 2. Si hay búsqueda activa: calcular score de similitud, ordenar por mayor coincidencia y nunca arrojar 0
+    if (isSearching) {
+      // Calcular score de similitud para cada producto (y sus variantes si es grupo)
+      const scoredList = baseProducts.map((p) => {
+        let score = calculateProductSearchScore(p, query);
+
+        // Si pertenece a un grupo, tomar también el score de las variantes hermanas para que el grupo ascienda
+        if (p.grupo_id) {
+          const siblings = sourceProducts.filter(v => v.grupo_id === p.grupo_id);
+          for (const sib of siblings) {
+            const sScore = calculateProductSearchScore(sib, query);
+            if (sScore > score) {
+              score = sScore;
+            }
+          }
+        }
+
+        return { product: p, score };
+      });
+
+      // Filtrar productos con similitud/coincidencias (score > 0)
+      const matchingItems = scoredList.filter(item => item.score > 0);
+
+      // "Nunca arrojar un catálogo en cero por búsqueda":
+      // Si hay coincidencias, usamos los productos coincidentes ordenados por similitud.
+      // Si una búsqueda no produjo coincidencias exactas, mostramos todo el catálogo base para nunca dejarlo en cero.
+      const candidateList = matchingItems.length > 0 ? matchingItems : scoredList;
+
+      // Ordenar: lo que tenga MÁS SIMILITUD y COINCIDENCIAS primero
+      candidateList.sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+
+        // Criterio secundario de orden
+        const priceA = a.product.precio_venta_ref || a.product.precio_mayor || 0;
+        const priceB = b.product.precio_venta_ref || b.product.precio_mayor || 0;
+        if (sortBy === 'precio_asc') return priceA - priceB;
+        if (sortBy === 'precio_desc') return priceB - priceA;
+        if (sortBy === 'nombre') return (a.product.nombre || '').localeCompare(b.product.nombre || '');
+
+        const hasImgA = Boolean(a.product.imagen_url || a.product.link);
+        const hasImgB = Boolean(b.product.imagen_url || b.product.link);
+        if (hasImgA && !hasImgB) return -1;
+        if (!hasImgA && hasImgB) return 1;
+        return (b.product.stock_disponible || 0) - (a.product.stock_disponible || 0);
+      });
+
+      return candidateList.map(item => item.product);
+    }
+
+    // 3. Ordenamiento normal cuando no hay búsqueda
+    const result = [...baseProducts];
     result.sort((a, b) => {
       const priceA = a.precio_venta_ref || a.precio_mayor || 0;
       const priceB = b.precio_venta_ref || b.precio_mayor || 0;
@@ -1017,7 +1099,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           (Number(v.stock_disponible) || 0) > 0
         ) || null;
 
-        const coverBase = individualVariants.find(v => v.es_principal_grupo) || individualVariants[0] || variants.find(v => (Number(v.stock_disponible) || 0) > 0) || variants[0];
+        const coverBase = (searchQuery.trim() ? (individualVariants.find(v => v.id === p.id) || variants.find(v => v.id === p.id)) : null) || individualVariants.find(v => v.es_principal_grupo) || individualVariants[0] || variants.find(v => (Number(v.stock_disponible) || 0) > 0) || variants[0];
         const coverProduct = coverBase;
 
         // 5. Nombre asignado para el kit unificado desde Firestore (grupo_kit_nombre / kit_nombre / nombre_kit)
@@ -1795,7 +1877,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSearchQuery(val);
+                    if (val.trim()) {
+                      setSelectedCategory('all');
+                      setSelectedSubcategory(null);
+                    }
+                  }}
                   placeholder={getText('searchPlaceholder') || "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."}
                   className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-11 pr-10 py-2 text-xs sm:text-sm text-[#111111] placeholder:text-[#111111] font-medium outline-none transition-all shadow-sm"
                 />
@@ -1841,7 +1930,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchQuery(val);
+                  if (val.trim()) {
+                    setSelectedCategory('all');
+                    setSelectedSubcategory(null);
+                  }
+                }}
                 placeholder={getText('searchPlaceholder') || "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."}
                 className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-9 pr-8 py-2 text-xs text-[#111111] placeholder:text-[#111111] font-medium outline-none shadow-sm"
               />
@@ -1865,6 +1961,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               onClick={() => {
                 setSelectedCategory('all');
                 setSelectedSubcategory(null);
+                setSearchQuery('');
               }}
               className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
                 selectedCategory === 'all' && !selectedSubcategory
@@ -1900,6 +1997,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     onClick={() => {
                       setSelectedCategory(cat);
                       setSelectedSubcategory(null);
+                      setSearchQuery('');
                     }}
                     className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 ${
                       isCatSelected
@@ -1930,6 +2028,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           onClick={() => {
                             setSelectedCategory(cat);
                             setSelectedSubcategory(null);
+                            setSearchQuery('');
                             setHoveredCategory(null);
                           }}
                           className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
@@ -1958,6 +2057,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                 onClick={() => {
                                   setSelectedCategory(cat);
                                   setSelectedSubcategory(subItem.name);
+                                  setSearchQuery('');
                                   setHoveredCategory(null);
                                 }}
                                 className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center justify-between transition-all cursor-pointer ${
@@ -2109,7 +2209,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 ({catalogItems.length})
               </span>
             </div>
-            {selectedCategory !== 'all' && (
+            {!searchQuery && selectedCategory !== 'all' && (
               <span className="text-[10.5px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
                 <span>{selectedCategory}</span>
                 <button
@@ -2125,7 +2225,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 </button>
               </span>
             )}
-            {selectedSubcategory && (
+            {!searchQuery && selectedSubcategory && (
               <span className="text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shadow-sm">
                 <span>Subcategoría: {selectedSubcategory}</span>
                 <button
@@ -2139,12 +2239,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               </span>
             )}
             {searchQuery && (
-              <span className="text-[10.5px] font-bold uppercase bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+              <span className="text-[10.5px] font-bold uppercase bg-amber-50 text-amber-900 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
                 <span>Búsqueda: "{searchQuery}"</span>
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="ml-1 text-blue-700 hover:text-black p-0.5 rounded-full hover:bg-blue-200/60 transition-colors cursor-pointer"
+                  className="ml-1 text-amber-800 hover:text-black p-0.5 rounded-full hover:bg-amber-200/60 transition-colors cursor-pointer"
                   title="Quitar búsqueda"
                 >
                   <X size={10} />
@@ -2230,12 +2330,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   key={`biker-cat-item-${item.id}-${itemIdx}`}
                   className="bg-white hover:shadow-lg border border-[#E5E7EB] hover:border-gray-300 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 group relative overflow-hidden"
                 >
-                  {/* Indicador de Stock Crítico (Solo si casi agotado, sin agotados) */}
-                  {currentStock > 0 && currentStock <= 6 && (
+                  {/* Indicador de Stock Crítico (Solo si casi agotado, 5 o menos unidades) */}
+                  {currentStock > 0 && currentStock <= 5 && (
                     <div className="flex items-center justify-end mb-1 z-10">
-                      <span className="text-[7.5px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-[#FF5200] border border-orange-200 flex items-center gap-1 shadow-xs">
+                      <span className="text-[7.5px] sm:text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-[#FF5200] border border-orange-200 flex items-center gap-1 shadow-xs tracking-tight">
                         <span className="animate-pulse">⏳</span>
-                        <span>Casi agotado</span>
+                        <span>Casi agotado, quedan solo {currentStock}</span>
                       </span>
                     </div>
                   )}
@@ -2422,8 +2522,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* CART DRAWER / SLIDE-OVER                                  */}
       {/* ========================================================= */}
       {isCartOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-          <div className="w-full max-w-md bg-white border-l border-gray-200 h-full flex flex-col shadow-2xl animate-slide-left text-[#111111]">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsCartOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white border-l border-gray-200 h-full flex flex-col shadow-2xl animate-slide-left text-[#111111] cursor-default"
+          >
             {/* Header Drawer */}
             <div className="p-4 pt-[max(1rem,env(safe-area-inset-top))] border-b border-gray-200 bg-gray-50 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -2593,8 +2701,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* CHECKOUT MODAL: DATOS DE ENVÍO REQUERIDOS POR EL CLIENTE   */}
       {/* ========================================================= */}
       {isCheckoutOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
-          <div className="bg-white border border-gray-200 rounded-3xl w-full max-w-2xl max-h-[calc(100dvh-2.5rem)] flex flex-col overflow-hidden shadow-2xl animate-scale-up my-auto text-[#111111]">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsCheckoutOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-gray-200 rounded-3xl w-full max-w-2xl max-h-[calc(100dvh-2.5rem)] flex flex-col overflow-hidden shadow-2xl animate-scale-up my-auto text-[#111111] cursor-default"
+          >
             {/* Modal Header: Título y Ruta de Pasos */}
             <div className="p-3.5 sm:p-4 border-b border-gray-200 bg-gray-50 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
@@ -3241,8 +3357,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* ORDER SUCCESS SCREEN                                      */}
       {/* ========================================================= */}
       {completedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
-          <div className="relative bg-white border-2 border-emerald-500/50 rounded-3xl w-full max-w-lg max-h-[calc(100dvh-2.5rem)] overflow-y-auto p-5 sm:p-7 text-center space-y-5 shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111]">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setCompletedOrder(null);
+          }}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-white border-2 border-emerald-500/50 rounded-3xl w-full max-w-lg max-h-[calc(100dvh-2.5rem)] overflow-y-auto p-5 sm:p-7 text-center space-y-5 shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111] cursor-default"
+          >
             {/* Botón X visible en la esquina superior derecha */}
             <button
               type="button"
@@ -3392,8 +3516,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         const qvInStock = (activeQV.stock_disponible || 0) > 0;
 
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto">
-            <div className="relative bg-white border border-gray-200 rounded-3xl w-full max-w-3xl max-h-[calc(100dvh-2.5rem)] flex flex-col md:flex-row overflow-y-auto md:overflow-hidden shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111]">
+          <div 
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setQuickViewProduct(null);
+                setQuickViewActiveVariant(null);
+                setQuickViewImageIndex(0);
+              }
+            }}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto cursor-pointer"
+          >
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className="relative bg-white border border-gray-200 rounded-3xl w-full max-w-3xl max-h-[calc(100dvh-2.5rem)] flex flex-col md:flex-row overflow-y-auto md:overflow-hidden shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111] cursor-default"
+            >
               
               {/* Botón X Siempre Fijo en la Esquina Superior Derecha */}
               <button
@@ -3499,12 +3635,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </p>
                   </div>
 
-                  {/* Stock info con urgencia inteligente (solo si casi agotado) */}
-                  {activeQV.stock_disponible > 0 && activeQV.stock_disponible <= 6 && (
+                  {/* Stock info con urgencia inteligente (solo si casi agotado, 5 o menos unidades) */}
+                  {activeQV.stock_disponible > 0 && activeQV.stock_disponible <= 5 && (
                     <div>
                       <span className="text-[11px] font-bold text-[#FF5722] flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl inline-flex">
                         <span className="animate-pulse">⏳</span>
-                        <span>Casi agotado</span>
+                        <span>Casi agotado, quedan solo {activeQV.stock_disponible}</span>
                       </span>
                     </div>
                   )}

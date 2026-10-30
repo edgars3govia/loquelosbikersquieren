@@ -107,9 +107,26 @@ export const StoreCategoriesModal: React.FC<StoreCategoriesModalProps> = ({
   const totalVisibleCount = categoryStats.filter((c) => !hiddenCategories.includes(c.key)).length;
   const totalHiddenCount = categoryStats.filter((c) => hiddenCategories.includes(c.key)).length;
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5">
-      <div className="bg-[#0e121b] border-2 border-amber-500/30 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-scale-up">
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 cursor-pointer"
+    >
+      <div 
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#0e121b] border-2 border-amber-500/30 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-scale-up cursor-default"
+      >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-white/10 flex items-center justify-between bg-[#121622]">
           <div className="flex items-center gap-3">

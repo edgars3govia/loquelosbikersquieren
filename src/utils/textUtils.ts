@@ -34,13 +34,169 @@ export const normalizeSearch = (str: string = ''): string => {
 };
 
 /**
+ * Splits query or text into normalized search tokens, eliminating empty strings and punctuation.
+ */
+export const tokenizeSearch = (str: string = ''): string[] => {
+  if (!str || typeof str !== 'string') return [];
+  const normalized = normalizeSearch(str);
+  return normalized
+    .split(/[^a-z0-9]+/i)
+    .filter((token) => token.length > 0);
+};
+
+/**
  * Checks if search query is found in target text regardless of accents or casing.
+ * Supports tokenized matching when multiple words are present.
  */
 export const matchesSearch = (text: string = '', query: string = ''): boolean => {
   if (!query || !query.trim()) return true;
   const q = normalizeSearch(query);
   const t = normalizeSearch(text);
-  return t.includes(q);
+  if (t.includes(q)) return true;
+  const tokens = tokenizeSearch(query);
+  if (tokens.length === 0) return true;
+  return tokens.some((token) => t.includes(token));
+};
+
+/**
+ * Calculates a search relevance / similarity score for a product against a search query.
+ * - Exact full query matches get the highest score.
+ * - Each matching word from the query adds significant score.
+ * - Prioritizes matches in product title (nombre), group name, SKU, keywords, categories.
+ * - Supports prefix matching, partial word matching, and multi-word queries.
+ * - Even if additional words are typed that don't match, existing matching words preserve the product in the results!
+ */
+export const calculateProductSearchScore = (
+  product: {
+    nombre?: string;
+    grupo_nombre?: string;
+    variante_nombre?: string;
+    sku?: string;
+    palabras_clave?: string;
+    categoria?: string;
+    categorias?: string[];
+    subcategoria?: string;
+    subcategorias?: string[];
+  },
+  query: string = ''
+): number => {
+  if (!query || !query.trim()) return 1;
+
+  const queryNorm = normalizeSearch(query);
+  const queryTokens = tokenizeSearch(query);
+  if (queryTokens.length === 0) return 1;
+
+  const nameNorm = normalizeSearch(product.nombre || '');
+  const groupNorm = normalizeSearch(product.grupo_nombre || '');
+  const variantNorm = normalizeSearch(product.variante_nombre || '');
+  const skuNorm = normalizeSearch(product.sku || '');
+  const keywordsNorm = normalizeSearch(product.palabras_clave || '');
+  const catNorm = normalizeSearch(`${product.categoria || ''} ${(product.categorias || []).join(' ')}`);
+  const subcatNorm = normalizeSearch(`${product.subcategoria || ''} ${(product.subcategorias || []).join(' ')}`);
+
+  const nameTokens = tokenizeSearch(product.nombre || '');
+  const groupTokens = tokenizeSearch(product.grupo_nombre || '');
+  const keywordTokens = tokenizeSearch(product.palabras_clave || '');
+
+  let score = 0;
+
+  // 1. Full Query Exact or Substring Matches (Highest priority)
+  if (nameNorm === queryNorm) {
+    score += 5000;
+  } else if (nameNorm.startsWith(queryNorm)) {
+    score += 2500;
+  } else if (nameNorm.includes(queryNorm)) {
+    score += 1500;
+  }
+
+  if (groupNorm === queryNorm) {
+    score += 3500;
+  } else if (groupNorm.includes(queryNorm)) {
+    score += 1200;
+  }
+
+  if (skuNorm === queryNorm) {
+    score += 4000;
+  } else if (skuNorm.includes(queryNorm)) {
+    score += 1000;
+  }
+
+  if (keywordsNorm.includes(queryNorm)) {
+    score += 800;
+  }
+
+  // 2. Token-by-Token Match Scoring
+  let matchedTokens = 0;
+
+  for (const qToken of queryTokens) {
+    let tokenScore = 0;
+
+    // Check exact token match in name
+    if (nameTokens.includes(qToken)) {
+      tokenScore += 400;
+    } else if (nameNorm.includes(qToken)) {
+      tokenScore += 250;
+    } else if (nameTokens.some(nt => nt.startsWith(qToken) || qToken.startsWith(nt))) {
+      tokenScore += 180;
+    }
+
+    // Check in group name
+    if (groupTokens.includes(qToken)) {
+      tokenScore += 300;
+    } else if (groupNorm.includes(qToken)) {
+      tokenScore += 180;
+    }
+
+    // Check in variant name
+    if (variantNorm.includes(qToken)) {
+      tokenScore += 200;
+    }
+
+    // Check in SKU
+    if (skuNorm === qToken || skuNorm.includes(qToken)) {
+      tokenScore += 300;
+    }
+
+    // Check in Keywords / Tags
+    if (keywordTokens.includes(qToken)) {
+      tokenScore += 180;
+    } else if (keywordsNorm.includes(qToken)) {
+      tokenScore += 120;
+    }
+
+    // Check in Category / Subcategory
+    if (catNorm.includes(qToken) || subcatNorm.includes(qToken)) {
+      tokenScore += 90;
+    }
+
+    // Partial 3-letter n-gram in name if token is at least 3 letters
+    if (tokenScore === 0 && qToken.length >= 3) {
+      for (let i = 0; i <= qToken.length - 3; i++) {
+        const sub = qToken.slice(i, i + 3);
+        if (nameNorm.includes(sub)) {
+          tokenScore += 40;
+          break;
+        }
+      }
+    }
+
+    if (tokenScore > 0) {
+      score += tokenScore;
+      matchedTokens++;
+    }
+  }
+
+  // 3. Multi-word Match Bonus: reward products matching more query words
+  if (matchedTokens > 0) {
+    score += matchedTokens * 250;
+    if (matchedTokens === queryTokens.length) {
+      score += 1000; // All tokens matched bonus!
+    } else if (matchedTokens > 1) {
+      score += Math.round((matchedTokens / queryTokens.length) * 500);
+    }
+  }
+
+  return score;
 };
 
 /**

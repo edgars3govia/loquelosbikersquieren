@@ -286,6 +286,15 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
     }
   }, [isOpen, initialFocusKey, customTexts]);
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleChange = (key: keyof StoreCustomTexts, val: string) => {
@@ -329,8 +338,16 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
   const currentGroup = TEXT_GROUPS.find(g => g.id === activeTabId) || TEXT_GROUPS[0];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-      <div className="bg-[#0e121b] border-2 border-amber-500/40 rounded-3xl w-full max-w-4xl max-h-[92dvh] flex flex-col overflow-hidden shadow-2xl animate-scale-up my-auto">
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto cursor-pointer"
+    >
+      <div 
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#0e121b] border-2 border-amber-500/40 rounded-3xl w-full max-w-4xl max-h-[92dvh] flex flex-col overflow-hidden shadow-2xl animate-scale-up my-auto cursor-default"
+      >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-white/10 bg-[#0a0d14] flex items-center justify-between">
           <div className="flex items-center gap-3">
