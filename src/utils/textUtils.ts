@@ -379,3 +379,15 @@ export const getProductSubcategoryNames = (
   return Array.from(namesMap.values());
 };
 
+/**
+ * Formato monetario venezolano exacto: punto para miles y coma para decimales (ej: 19.520,64).
+ */
+export const formatVES = (val: number | string): string => {
+  const num = Number(val) || 0;
+  const isNegative = num < 0;
+  const fixed = Math.abs(num).toFixed(2);
+  const [intPart, decPart] = fixed.split('.');
+  const withDots = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${isNegative ? '-' : ''}${withDots},${decPart}`;
+};
+

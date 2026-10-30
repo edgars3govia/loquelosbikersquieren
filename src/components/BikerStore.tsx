@@ -43,7 +43,8 @@ import {
   Store,
   Sliders,
   Edit3,
-  Boxes
+  Boxes,
+  MessageCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, addDoc, writeBatch, increment } from 'firebase/firestore';
@@ -63,7 +64,8 @@ import {
   formatSubcategoryDisplay,
   getProductSubcategoryKeys,
   getProductSubcategoryNames,
-  calculateProductSearchScore
+  calculateProductSearchScore,
+  formatVES
 } from '../utils/textUtils';
 import { StoreCategoriesModal } from './StoreCategoriesModal';
 import { StoreTextEditorModal, DEFAULT_STORE_TEXTS } from './StoreTextEditorModal';
@@ -1694,14 +1696,6 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     }
   };
 
-  // Formato monetario venezolano exacto: punto para miles y coma para decimales (ej: 19.520,64)
-  const formatVES = (val: number): string => {
-    const fixed = (val || 0).toFixed(2);
-    const [intPart, decPart] = fixed.split('.');
-    const withDots = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-    return `${withDots},${decPart}`;
-  };
-
   // Generate WhatsApp Message for Order matching user's exact specification
   const generateOrderWhatsAppText = (order: PedidoTienda) => {
     let agencyLabel = 'Agencia MRW';
@@ -2463,7 +2457,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         )}
                       </div>
                       <div className="text-[10px] sm:text-[10.5px] font-medium text-[#4B5563] leading-tight">
-                        ≈ Bs. {((item.hasKit && !isSelectedByUser ? item.priceMin : priceUSD) * tasaBCV).toFixed(2)}
+                        ≈ Bs. {formatVES((item.hasKit && !isSelectedByUser ? item.priceMin : priceUSD) * tasaBCV)}
                       </div>
                     </div>
 
@@ -2662,7 +2656,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   </div>
                   <div className="flex items-center justify-between text-xs text-[#4B5563]">
                     <span>Equivalente en Bolívares:</span>
-                    <span className="font-bold text-[#4B5563]">Bs. {cartTotals.totalBS.toFixed(2)}</span>
+                    <span className="font-bold text-[#4B5563]">Bs. {formatVES(cartTotals.totalBS)}</span>
                   </div>
                   <div className="flex items-baseline justify-between pt-2 border-t border-gray-200">
                     <span className="font-bold text-sm uppercase text-[#111111]">Total a Pagar:</span>
@@ -2841,7 +2835,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                     {/* 3. TELÉFONO */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1.5">
+                        <img src="/whatsapp.png" alt="WhatsApp" className="w-3.5 h-3.5 object-contain shrink-0" />
                         <span>3. Teléfono / WhatsApp *</span>
                       </label>
                       <input
@@ -2897,7 +2892,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         <span>{cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto en orden' : 'productos en orden'}</span>
                       </span>
                       <span className="font-mono text-right">
-                        Total: <strong className="text-[#FF5200] font-black">${cartTotals.totalUSD.toFixed(2)} USD</strong> <span className="text-[#4B5563] font-medium text-[10px]">(≈ Bs. {cartTotals.totalBS.toFixed(2)})</span>
+                        Total: <strong className="text-[#FF5200] font-black">${cartTotals.totalUSD.toFixed(2)} USD</strong> <span className="text-[#4B5563] font-medium text-[10px]">(≈ Bs. {formatVES(cartTotals.totalBS)})</span>
                       </span>
                     </div>
 
@@ -2978,53 +2973,84 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       </div>
                     </div>
 
-                    {/* Monto exacto a pagar (USD y Bs BCV) */}
-                    <div className="bg-white border border-gray-200 rounded-xl p-2.5 flex items-center justify-between text-xs shadow-xs">
-                      <div>
-                        <span className="text-[9px] uppercase font-bold text-[#4B5563] block">Monto Exacto a Pagar:</span>
-                        <span className="font-mono text-base font-black text-[#FF5200]">${cartTotals.totalUSD.toFixed(2)} USD</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] uppercase font-bold text-[#4B5563] block">En Bolívares (BCV {tasaBCV.toFixed(2)}):</span>
-                        <span className="font-mono font-bold text-[#111111] text-sm">Bs. {cartTotals.totalBS.toFixed(2)}</span>
-                      </div>
-                    </div>
-
-                    {/* Datos Bancarios Copiables */}
-                    <div className="space-y-1.5">
-                      <div className="text-[10px] text-[#555555] font-bold uppercase tracking-wider px-0.5">
-                        Datos para transferir ({selectedPaymentMethod?.nombre || metodoPago}):
+                    {/* Datos Bancarios Copiables y Monto Unificado */}
+                    <div className="space-y-2">
+                      <div className="text-xs font-black uppercase tracking-wider px-0.5 text-[#111111] flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#FFC107]"></span>
+                        <span>Datos para transferir ({selectedPaymentMethod?.nombre || metodoPago}):</span>
                       </div>
 
+                      {/* Monto exacto a pagar (USD y Bs BCV) */}
+                      <div className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs shadow-xs">
+                        <div>
+                          <span className="text-[9.5px] uppercase font-bold text-[#4B5563] block tracking-wider">Monto Exacto a Pagar:</span>
+                          <div className="font-mono text-base sm:text-lg font-black text-[#FF5200] leading-tight mt-0.5">
+                            ${cartTotals.totalUSD.toFixed(2)} <span className="text-xs font-bold text-[#FF5200]">USD</span>
+                          </div>
+                        </div>
+                        <div className="sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-100">
+                          <span className="text-[9.5px] uppercase font-bold text-[#4B5563] block tracking-wider">
+                            En Bolívares (Tasa BCV {formatVES(tasaBCV)}):
+                          </span>
+                          <div className="flex items-center sm:justify-end gap-2 mt-0.5">
+                            <span className="font-mono text-base sm:text-lg font-black text-[#D97706] tracking-tight leading-tight">
+                              Bs. {formatVES(cartTotals.totalBS)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyBankData(formatVES(cartTotals.totalBS), 'monto_bs')}
+                              className="text-[10px] bg-amber-50 hover:bg-amber-100 text-[#D97706] border border-amber-300 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer font-bold transition-all shadow-xs active:scale-95 shrink-0"
+                              title="Copiar monto exacto en Bolívares para tu transferencia o Pago Móvil"
+                            >
+                              {copiedBankField === 'monto_bs' ? (
+                                <>
+                                  <Check size={11} className="text-emerald-600 stroke-[3]" />
+                                  <span className="text-emerald-700">¡Copiado!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy size={11} />
+                                  <span>Copiar Bs</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Campos bancarios copiables */}
                       <div className="space-y-1.5 text-[11px]">
                         {selectedPaymentMethod && selectedPaymentMethod.campos && selectedPaymentMethod.campos.length > 0 ? (
-                          selectedPaymentMethod.campos.map((campo, cIdx) => (
-                            <div
-                              key={campo.id || `campo-${cIdx}`}
-                              className="flex justify-between items-center bg-white p-2 px-3 rounded-xl border border-gray-200 gap-2 shadow-xs"
-                            >
-                              <span className="text-[#555555] text-[10.5px] shrink-0 font-medium">{campo.etiqueta}:</span>
-                              <div className="flex items-center gap-2 overflow-hidden">
-                                <span className="font-bold text-[#111111] font-mono truncate text-right text-xs">
-                                  {campo.valor}
-                                </span>
-                                {campo.copiable !== false && campo.valor && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopyBankData(campo.valor, `field_${campo.id || cIdx}`)}
-                                    className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer shrink-0 font-bold border border-gray-200"
-                                  >
-                                    {copiedBankField === `field_${campo.id || cIdx}` ? (
-                                      <Check size={10} className="text-emerald-600" />
-                                    ) : (
-                                      <Copy size={10} />
-                                    )}
-                                    <span>{copiedBankField === `field_${campo.id || cIdx}` ? '¡Copiado!' : 'Copiar'}</span>
-                                  </button>
-                                )}
+                          selectedPaymentMethod.campos.map((campo, cIdx) => {
+                            const cleanLabel = (campo.etiqueta || '').replace(/:+$/, '').trim();
+                            return (
+                              <div
+                                key={campo.id || `campo-${cIdx}`}
+                                className="flex justify-between items-center bg-white p-2 px-3 rounded-xl border border-gray-200 gap-2 shadow-xs"
+                              >
+                                <span className="text-[#555555] text-[10.5px] shrink-0 font-medium">{cleanLabel}:</span>
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                  <span className="font-bold text-[#111111] font-mono truncate text-right text-xs">
+                                    {campo.valor}
+                                  </span>
+                                  {campo.copiable !== false && campo.valor && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyBankData(campo.valor, `field_${campo.id || cIdx}`)}
+                                      className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer shrink-0 font-bold border border-gray-200"
+                                    >
+                                      {copiedBankField === `field_${campo.id || cIdx}` ? (
+                                        <Check size={10} className="text-emerald-600" />
+                                      ) : (
+                                        <Copy size={10} />
+                                      )}
+                                      <span>{copiedBankField === `field_${campo.id || cIdx}` ? '¡Copiado!' : 'Copiar'}</span>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          ))
+                            );
+                          })
                         ) : (
                           <p className="text-[10.5px] text-[#555555] py-1">
                             No hay datos registrados para este método.
@@ -3107,76 +3133,31 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-                  {/* SECCIÓN 3: MODO DE CONFIRMACIÓN */}
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {/* Opción 1: Pagar y subir comprobante */}
+                  {/* WhatsApp Active Notice (if user clicked escape hatch) */}
+                  {tipoConfirmacion === 'whatsapp' && (
+                    <div className="bg-[#25D366]/10 border border-[#25D366]/30 rounded-2xl p-3 flex items-start justify-between gap-3 shadow-xs">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-[#25D366]/20 flex items-center justify-center shrink-0 mt-0.5">
+                          <img src="/whatsapp.png" alt="WhatsApp" className="w-5 h-5 object-contain shrink-0" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-emerald-950 block">
+                            Atención y pago coordinado por WhatsApp
+                          </span>
+                          <span className="text-[10px] text-emerald-900 block leading-tight mt-0.5">
+                            No requieres adjuntar captura aquí. Al presionar confirmar, se abrirá WhatsApp con el resumen de tu pedido para coordinar el pago directamente con un asesor.
+                          </span>
+                        </div>
+                      </div>
                       <button
                         type="button"
                         onClick={() => setTipoConfirmacion('comprobante')}
-                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start justify-between gap-2 min-h-[60px] ${
-                          tipoConfirmacion === 'comprobante'
-                            ? 'bg-emerald-50 border-emerald-400 text-emerald-900 shadow-xs ring-1 ring-emerald-400'
-                            : 'bg-white border-gray-200 text-[#555555] hover:bg-gray-50'
-                        }`}
+                        className="text-[10px] font-bold text-[#128C7E] hover:text-[#075E54] underline shrink-0 cursor-pointer pt-0.5 whitespace-nowrap"
                       >
-                        <div className="flex items-start gap-2 min-w-0 flex-1">
-                          <span className="text-sm shrink-0 mt-0.5">⚡</span>
-                          <div className="min-w-0 flex-1">
-                            <span className="text-[11px] font-bold text-[#111111] block leading-snug break-words">
-                              Pagar y subir comprobante
-                            </span>
-                            <EditableStoreText
-                              textKey="optionReceiptBadge"
-                              value={getText('optionReceiptBadge')}
-                              isAdmin={isAdmin}
-                              onOpenEditor={handleOpenTextEditorFor}
-                              as="span"
-                              className="text-[9.5px] text-emerald-700 font-semibold block leading-snug break-words mt-0.5 whitespace-normal"
-                            />
-                          </div>
-                        </div>
-                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                          tipoConfirmacion === 'comprobante' ? 'border-emerald-600 bg-emerald-600' : 'border-gray-300'
-                        }`}>
-                          {tipoConfirmacion === 'comprobante' && <Check size={9} className="text-white stroke-[3]" />}
-                        </div>
-                      </button>
-
-                      {/* Opción 2: Concretar por WhatsApp */}
-                      <button
-                        type="button"
-                        onClick={() => setTipoConfirmacion('whatsapp')}
-                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start justify-between gap-2 min-h-[60px] ${
-                          tipoConfirmacion === 'whatsapp'
-                            ? 'bg-amber-50 border-amber-400 text-amber-900 shadow-xs ring-1 ring-amber-400'
-                            : 'bg-white border-gray-200 text-[#555555] hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-start gap-2 min-w-0 flex-1">
-                          <span className="text-sm shrink-0 mt-0.5">💬</span>
-                          <div className="min-w-0 flex-1">
-                            <span className="text-[11px] font-bold text-[#111111] block leading-snug break-words">
-                              Concretar por WhatsApp
-                            </span>
-                            <EditableStoreText
-                              textKey="optionWhatsappBadge"
-                              value={getText('optionWhatsappBadge')}
-                              isAdmin={isAdmin}
-                              onOpenEditor={handleOpenTextEditorFor}
-                              as="span"
-                              className="text-[9.5px] text-amber-800 font-semibold block leading-snug break-words mt-0.5 whitespace-normal"
-                            />
-                          </div>
-                        </div>
-                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                          tipoConfirmacion === 'whatsapp' ? 'border-[#FFC107] bg-[#FFC107]' : 'border-gray-300'
-                        }`}>
-                          {tipoConfirmacion === 'whatsapp' && <Check size={9} className="text-[#111111] stroke-[3]" />}
-                        </div>
+                        Subir comprobante
                       </button>
                     </div>
-                  </div>
+                  )}
 
                   {/* SECCIÓN 4: RESUMEN AL FINAL */}
                   <div className="bg-gray-50 border border-gray-200 rounded-2xl overflow-hidden transition-all shadow-xs">
@@ -3292,7 +3273,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               <span className="text-[#111111] font-semibold">{clienteNombre || 'Sin nombre'} ({clienteCedula || 'Sin cédula'})</span>
                             </div>
                             <div>
-                              <span className="text-gray-400 block text-[9px] uppercase font-bold">Teléfono / WhatsApp:</span>
+                              <span className="text-gray-400 block text-[9px] uppercase font-bold flex items-center gap-1">
+                                <img src="/whatsapp.png" alt="" className="w-3 h-3 object-contain shrink-0 inline" />
+                                <span>Teléfono / WhatsApp:</span>
+                              </span>
                               <span className="text-[#111111] font-semibold">{clienteTelefono || 'Sin teléfono'}</span>
                             </div>
                             <div className="sm:col-span-2">
@@ -3310,13 +3294,17 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     <button
                       type="submit"
                       disabled={isSubmittingOrder || isUploadingReceipt}
-                      className={`w-full py-3 disabled:opacity-50 text-[#111111] font-bold tracking-normal text-sm sm:text-base uppercase rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all ${
+                      className={`w-full py-3.5 disabled:opacity-50 font-bold tracking-normal text-sm sm:text-base uppercase rounded-xl flex items-center justify-center gap-2.5 shadow-md cursor-pointer active:scale-98 transition-all ${
                         tipoConfirmacion === 'comprobante'
-                          ? 'bg-emerald-400 hover:bg-emerald-300 shadow-emerald-500/20'
-                          : 'bg-[#FFC107] hover:bg-[#ffb300] shadow-amber-400/20'
+                          ? 'bg-emerald-400 hover:bg-emerald-300 text-[#111111] shadow-emerald-500/20'
+                          : 'bg-[#25D366] hover:bg-[#20ba5a] text-white shadow-lg shadow-[#25D366]/30 border border-[#25D366]'
                       }`}
                     >
-                      <CheckCircle2 size={16} />
+                      {tipoConfirmacion === 'comprobante' ? (
+                        <CheckCircle2 size={16} />
+                      ) : (
+                        <img src="/whatsapp.png" alt="WhatsApp" className="w-5 h-5 object-contain shrink-0 drop-shadow-xs" />
+                      )}
                       <span>
                         {isSubmittingOrder
                           ? 'Procesando Pedido...'
@@ -3343,6 +3331,39 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           onOpenEditor={handleOpenTextEditorFor}
                           as="p"
                         />
+                      )}
+                    </div>
+
+                    {/* Vía de escape secundaria bajo la Ley de Hick */}
+                    <div className="pt-1.5 pb-0.5 text-center">
+                      {tipoConfirmacion === 'comprobante' ? (
+                        <button
+                          type="button"
+                          onClick={() => setTipoConfirmacion('whatsapp')}
+                          className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-[#555555] hover:text-[#111111] transition-colors cursor-pointer group py-1 px-2.5 rounded-lg hover:bg-gray-100"
+                        >
+                          <img src="/whatsapp.png" alt="WhatsApp" className="w-4 h-4 object-contain group-hover:scale-110 transition-transform shrink-0" />
+                          <span>
+                            ¿Tienes problemas para pagar?{' '}
+                            <span className="underline font-bold text-[#128C7E] group-hover:text-[#075E54]">
+                              Escríbenos al WhatsApp
+                            </span>
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setTipoConfirmacion('comprobante')}
+                          className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-[#555555] hover:text-emerald-700 transition-colors cursor-pointer group py-1 px-2.5 rounded-lg hover:bg-gray-100"
+                        >
+                          <CheckCircle2 size={13} className="text-emerald-600" />
+                          <span>
+                            Prefiero realizar el pago directo y{' '}
+                            <span className="underline font-bold text-emerald-700">
+                              subir comprobante
+                            </span>
+                          </span>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -3445,7 +3466,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               )}
               <div className="flex justify-between pt-1 font-mono">
                 <span className="text-[#111111] font-bold uppercase">Total del Pedido:</span>
-                <span className="text-base font-black text-emerald-700">${completedOrder.totalUSD.toFixed(2)} USD (Bs. {completedOrder.totalBS.toFixed(2)})</span>
+                <span className="text-base font-black text-emerald-700">${completedOrder.totalUSD.toFixed(2)} USD (Bs. {formatVES(completedOrder.totalBS)})</span>
               </div>
             </div>
 
@@ -3454,18 +3475,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <button
                 type="button"
                 onClick={() => handleSendToWhatsApp(completedOrder)}
-                className={`w-full py-3.5 font-bold uppercase text-sm rounded-2xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95 transition-all ${
-                  completedOrder.tipo_confirmacion === 'comprobante_automatico'
-                    ? 'bg-gray-100 hover:bg-gray-200 text-[#111111] border border-gray-300'
-                    : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/25'
-                }`}
+                className="w-full py-3.5 font-bold text-sm sm:text-base rounded-2xl flex items-center justify-center gap-2.5 shadow-lg shadow-[#25D366]/30 cursor-pointer active:scale-95 transition-all bg-[#25D366] hover:bg-[#20ba5a] text-white border border-[#25D366]"
               >
-                <Share2 size={16} />
-                <span>
-                  {completedOrder.tipo_confirmacion === 'comprobante_automatico'
-                    ? 'Notificar / Enviar Copia por WhatsApp (Opcional)'
-                    : '👉 ENVIAR PEDIDO POR WHATSAPP AHORA'}
-                </span>
+                <img src="/whatsapp.png" alt="WhatsApp" className="w-5 h-5 object-contain shrink-0 drop-shadow-xs" />
+                <span>Ir a WhatsApp y Notificar/enviar copia de pedido</span>
               </button>
 
               <button
@@ -3631,7 +3644,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       ${qvPriceUSD.toFixed(2)} USD
                     </div>
                     <p className="text-xs text-[#4B5563] font-semibold mt-0.5">
-                      ≈ Bs. {qvPriceBS.toFixed(2)} <span className="text-[#4B5563] font-normal text-[10px]">(Tasa BCV: {tasaBCV.toFixed(2)})</span>
+                      ≈ Bs. {formatVES(qvPriceBS)} <span className="text-[#4B5563] font-normal text-[10px]">(Tasa BCV: {formatVES(tasaBCV)})</span>
                     </p>
                   </div>
 
@@ -3753,10 +3766,21 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-[11px] font-bold">
+          <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 sm:gap-4 text-[11px] font-bold">
             <span className="text-gray-300">Envíos: MRW • Zoom • Tealca • Domesa</span>
-            <span className="text-gray-600">•</span>
+            <span className="text-gray-600 hidden sm:inline">•</span>
             <span className="text-emerald-400">Tasa BCV Oficial Garantizada</span>
+            <span className="text-gray-600 hidden sm:inline">•</span>
+            <a
+              href="https://api.whatsapp.com/send?phone=584128276786&text=Hola!%20Deseo%20hacer%20una%20consulta%20en%20la%20tienda%20online"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[#25D366] hover:text-[#20ba5a] transition-colors"
+              title="Atención directa por WhatsApp (0412-8276786)"
+            >
+              <img src="/whatsapp.png" alt="WhatsApp" className="w-4 h-4 object-contain shrink-0" />
+              <span>Atención WhatsApp</span>
+            </a>
           </div>
         </div>
       </footer>
