@@ -134,15 +134,15 @@ export const StoreCategoriesModal: React.FC<StoreCategoriesModalProps> = ({
               <Store size={20} />
             </div>
             <div>
-              <h3 className="font-extrabold text-lg sm:text-xl uppercase tracking-tight text-white flex items-center gap-2">
-                <span>Categorías de la Tienda Online</span>
+              <h3 className="font-medium text-lg sm:text-xl tracking-tight text-white flex items-center gap-2">
+                <span>Categorías de la tienda online</span>
                 {saveToast && (
                   <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full animate-fade-in flex items-center gap-1">
                     <CheckCircle2 size={10} /> Guardado
                   </span>
                 )}
               </h3>
-              <p className="text-[11px] text-slate-400 font-medium">
+              <p className="text-[11px] text-slate-400 font-normal">
                 Selecciona qué categorías se muestran a los clientes en el e-commerce
               </p>
             </div>
@@ -193,17 +193,17 @@ export const StoreCategoriesModal: React.FC<StoreCategoriesModalProps> = ({
             <button
               type="button"
               onClick={handleEnableAll}
-              className="text-[10px] font-black uppercase tracking-wider bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 px-2.5 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap"
+              className="text-[10px] font-medium bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 px-2.5 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap"
             >
-              Mostrar Todas
+              Mostrar todas
             </button>
             <button
               type="button"
               onClick={handleHideNonCommercial}
-              className="text-[10px] font-black uppercase tracking-wider bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 px-2.5 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap"
+              className="text-[10px] font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 px-2.5 py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap"
               title="Oculta automáticamente categorías como Embalaje, Herramientas, etc."
             >
-              Ocultar Embalaje / Internos
+              Ocultar embalaje / internos
             </button>
           </div>
         </div>
@@ -264,12 +264,12 @@ export const StoreCategoriesModal: React.FC<StoreCategoriesModalProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-full border font-mono ${
+                    <span className={`text-[9.5px] font-medium px-2 py-0.5 rounded-full border ${
                       isHidden
                         ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                         : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                     }`}>
-                      {isHidden ? 'Oculta en Tienda' : 'Visible en Tienda'}
+                      {isHidden ? 'Oculta en tienda' : 'Visible en tienda'}
                     </span>
 
                     {/* Toggle button visual indicator */}
@@ -287,13 +287,13 @@ export const StoreCategoriesModal: React.FC<StoreCategoriesModalProps> = ({
 
         {/* Modal Footer */}
         <div className="p-3 sm:p-4 border-t border-white/10 bg-[#0a0d14] flex items-center justify-between">
-          <p className="text-[10px] text-slate-400 font-medium hidden sm:block">
+          <p className="text-[10px] text-slate-400 font-normal hidden sm:block">
             Los cambios se aplican al instante en la tienda online.
           </p>
           <button
             type="button"
             onClick={onClose}
-            className="w-full sm:w-auto px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-bold uppercase text-xs rounded-xl cursor-pointer transition-all ml-auto"
+            className="w-full sm:w-auto px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-medium text-xs rounded-xl cursor-pointer transition-all ml-auto"
           >
             Listo / Cerrar
           </button>

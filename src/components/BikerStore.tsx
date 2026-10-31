@@ -44,7 +44,8 @@ import {
   Sliders,
   Edit3,
   Boxes,
-  MessageCircle
+  MessageCircle,
+  Menu
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, addDoc, writeBatch, increment } from 'firebase/firestore';
@@ -71,6 +72,7 @@ import { StoreCategoriesModal } from './StoreCategoriesModal';
 import { StoreTextEditorModal, DEFAULT_STORE_TEXTS } from './StoreTextEditorModal';
 import { EditableStoreText } from './EditableStoreText';
 import { PaymentMethodsEditorModal } from './PaymentMethodsEditorModal';
+import { ProductVariantsModal, isValidGroupId } from './ProductVariantsModal';
 import { DEFAULT_PAYMENT_METHODS } from '../constants/defaultPaymentMethods';
 import { fetchTasaOficialBCV, getCachedTasaBCV, DEFAULT_TASA_FALLBACK } from '../lib/tasaService';
 
@@ -87,6 +89,26 @@ const formatTitleCase = (text?: string): string => {
     .join(' ');
 };
 
+/**
+ * Formatea un texto a formato "Sentence case" o Capitalización simple (ej. "Todos los productos", "Accesorios - llaveros")
+ */
+const formatCategorySentenceCase = (text?: string): string => {
+  if (!text) return '';
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  if (trimmed.includes(' - ')) {
+    return trimmed
+      .split(' - ')
+      .map((part) => {
+        const clean = part.trim();
+        if (!clean) return '';
+        return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+      })
+      .join(' - ');
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+};
+
 // ============================================================================
 // COMPONENTE: CARRUSEL DE IMÁGENES MULTI-FOTO CON FLECHAS, SWIPE Y MINIATURAS
 // ============================================================================
@@ -97,6 +119,7 @@ interface StoreImageCarouselProps {
   altText: string;
   onOpenDetail?: () => void;
   className?: string;
+  imageClassName?: string;
   showThumbnails?: boolean;
 }
 
@@ -107,6 +130,7 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
   altText,
   onOpenDetail,
   className = "h-32 sm:h-36 md:h-40 max-h-40 w-full",
+  imageClassName,
   showThumbnails = true,
 }) => {
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
@@ -171,13 +195,13 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className={`relative w-full ${className} bg-[#FAFAFA] rounded-lg overflow-hidden flex items-center justify-center cursor-pointer group/img transition-transform`}
+        className={`relative w-full ${className} bg-[#FAFAFA] rounded-sm overflow-hidden flex items-center justify-center cursor-pointer group/img transition-transform`}
       >
         {currentImage ? (
           <img
             src={currentImage}
             alt={altText}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover/img:scale-105"
+            className={`w-full h-full ${imageClassName || 'object-cover'} transition-transform duration-500 group-hover/img:scale-105`}
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
             }}
@@ -185,15 +209,15 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
         ) : (
           <div className="flex flex-col items-center gap-1 text-gray-400">
             <Package size={28} />
-            <span className="text-[8.5px] font-bold uppercase">Sin foto</span>
+            <span className="text-[8.5px] font-medium">Sin foto</span>
           </div>
         )}
 
         {/* Indicador flotante Ver Detalle al pasar el cursor */}
         {onOpenDetail && (
           <div className="absolute inset-0 bg-black/25 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-            <span className="px-2.5 py-1 bg-[#111111]/90 text-white rounded-md text-[8.5px] font-bold uppercase flex items-center gap-1 shadow-sm">
-              <Eye size={11} className="text-[#FFC107]" /> Ver Detalle
+            <span className="px-2.5 py-1 bg-[#111111]/90 text-white rounded-md text-[8.5px] font-medium flex items-center gap-1 shadow-sm">
+              <Eye size={11} className="text-[#FFC107]" /> Ver detalle
             </span>
           </div>
         )}
@@ -269,7 +293,7 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
 
 // Helper para reunir las fotos disponibles garantizando exclusividad absoluta:
 // - Si la variante es la opción Kit (es_kit): muestra la foto unificada del kit (grupo_kit_imagen).
-// - Si es una variante individual: reúne las fotos de esa variante y EXCLUYE estrictamente la foto unificada del kit.
+// - Si es una variante individual: reúne las fotos de esa variante y EXCLUYE estrictamente la foto unificada del kit y portadas generales ajenas.
 const getItemImages = (
   item: {
     isGroup: boolean;
@@ -298,47 +322,41 @@ const getItemImages = (
     return kitPhotos.length > 0 ? kitPhotos : (kitDirectUrl ? [kitDirectUrl] : []);
   }
 
-  // CASO B: Variante individual regular (la foto unificada del kit NO debe repetirse aquí)
+  // CASO B: Variante individual regular (la foto unificada del kit y portadas globales ajenas NO deben incluirse aquí)
   const imagesList: string[] = [];
 
-  // 1. Foto principal de la variante activa (prioridad máxima)
-  const activeMain = formatDirectImageUrl(activeVariant.imagen_url || activeVariant.link);
-  if (activeMain) {
-    imagesList.push(activeMain);
+  // 1. Foto principal y propia de la variante seleccionada (prioridad máxima y exclusiva)
+  // Regla estricta: selectedVariant.variante_imagen_miniatura || selectedVariant.imagen_portada || selectedVariant.link || selectedVariant.imagen_url
+  const heroRaw = activeVariant.variante_imagen_miniatura || activeVariant.imagen_portada || activeVariant.link || activeVariant.imagen_url;
+  if (heroRaw) {
+    const formatted = formatDirectImageUrl(heroRaw);
+    if (formatted) imagesList.push(formatted);
   }
 
-  // 2. Foto HD específica de la variante activa
+  // 2. Foto HD específica de la variante activa si existe
   if (activeVariant.variante_imagen_hd) {
-    imagesList.push(formatDirectImageUrl(activeVariant.variante_imagen_hd));
+    const formatted = formatDirectImageUrl(activeVariant.variante_imagen_hd);
+    if (formatted) imagesList.push(formatted);
   }
 
-  // 3. Portada específica de la variante activa
+  // 3. Portada específica si difiere de heroRaw
   if (activeVariant.imagen_portada) {
-    imagesList.push(formatDirectImageUrl(activeVariant.imagen_portada));
+    const formatted = formatDirectImageUrl(activeVariant.imagen_portada);
+    if (formatted) imagesList.push(formatted);
   }
 
-  // 4. Miniatura de la variante activa (si es una URL de imagen válida)
-  if (activeVariant.variante_imagen_miniatura) {
-    imagesList.push(formatDirectImageUrl(activeVariant.variante_imagen_miniatura));
-  }
-
-  // 5. Fotos secundarias exclusivas de esta misma variante (Galería de este modelo)
+  // 4. Fotos secundarias exclusivas de esta misma variante (Galería de este modelo)
   if (Array.isArray(activeVariant.imagenes_secundarias)) {
     activeVariant.imagenes_secundarias.forEach(url => {
       if (url) imagesList.push(formatDirectImageUrl(url));
     });
   }
 
-  // 6. Colección de imágenes adicionales asociadas a esta variante
+  // 5. Colección de imágenes adicionales asociadas a esta variante
   if (Array.isArray(activeVariant.imagenes)) {
     activeVariant.imagenes.forEach(u => {
       if (u) imagesList.push(formatDirectImageUrl(u));
     });
-  }
-
-  // 7. Si no es un grupo, o si es la portada general asignada al producto base
-  if (!item.isGroup && item.coverProduct.grupo_imagen_portada) {
-    imagesList.push(formatDirectImageUrl(item.coverProduct.grupo_imagen_portada));
   }
 
   // Deduplicar manteniendo el orden de prioridad y APLICAR EXCLUSIVIDAD ESTRICTA DEL KIT
@@ -349,14 +367,21 @@ const getItemImages = (
     if (!clean || seen.has(clean)) return;
 
     // Verificar si esta foto es la del kit para excluirla de las variantes individuales
-    const isKitPhoto = (kitDirectUrl && clean === kitDirectUrl) || 
-                       (kitDriveId && (clean.includes(kitDriveId) || extractDriveFileId(clean) === kitDriveId));
+    const isKitPhoto = Boolean(
+      (kitDirectUrl && clean === kitDirectUrl) || 
+      (kitDriveId && (clean.includes(kitDriveId) || extractDriveFileId(clean) === kitDriveId))
+    );
 
     if (!isKitPhoto) {
       seen.add(clean);
       uniqueList.push(clean);
     }
   });
+
+  // Si después del filtrado no quedó ninguna foto, asegurar la foto principal de la variante
+  if (uniqueList.length === 0 && heroRaw) {
+    return [formatDirectImageUrl(heroRaw)];
+  }
 
   return uniqueList;
 };
@@ -381,6 +406,17 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   onExitToAdmin,
   isAdmin = false
 }) => {
+  // Support activating admin controls via props, URL param (?admin=true), or localStorage
+  const [isAdminMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('admin') === 'true' || params.get('modo') === 'admin') return true;
+      return localStorage.getItem('biker_store_admin_mode') === 'true';
+    }
+    return false;
+  });
+  const effectiveAdmin = isAdmin || isAdminMode;
+
   // Exchange rate: Live official BCV rate (ve.dolarapi.com) + Cache + Firestore sync
   const [liveTasaBCV, setLiveTasaBCV] = useState<number>(() => {
     const cached = getCachedTasaBCV();
@@ -492,6 +528,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [completedOrder, setCompletedOrder] = useState<PedidoTienda | null>(null);
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
   const [trackingQuery, setTrackingQuery] = useState('');
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Shipping Form State (The exact 4 fields requested + payment method)
   const [clienteNombre, setClienteNombre] = useState('');
@@ -522,6 +560,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     }
   });
   const [isPaymentMethodsModalOpen, setIsPaymentMethodsModalOpen] = useState(false);
+  const [isVariantsModalOpen, setIsVariantsModalOpen] = useState(false);
+  const [variantsModalInitialGroupId, setVariantsModalInitialGroupId] = useState<string | null>(null);
 
   // Fallback public listener for products to ensure incognito / public visitors ALWAYS see the 78 products immediately
   const [dbProducts, setDbProducts] = useState<Producto[]>([]);
@@ -537,6 +577,135 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [quickViewQty, setQuickViewQty] = useState<number>(1);
   const [quickViewAdded, setQuickViewAdded] = useState<boolean>(false);
 
+  // Estados para Animación Espacial "Fly-to-Cart" y Dropdown Minimalista de Confirmación
+  const [flyingItem, setFlyingItem] = useState<{
+    id: number;
+    imageUrl: string;
+    startX: number;
+    startY: number;
+    targetX: number;
+    targetY: number;
+    isFlying: boolean;
+  } | null>(null);
+
+  const [isCartBouncing, setIsCartBouncing] = useState(false);
+
+  const [addedHeaderDropdown, setAddedHeaderDropdown] = useState<{
+    id: number;
+    productName: string;
+    imageUrl: string;
+    priceUSD: number;
+    priceBS: number;
+    quantity: number;
+  } | null>(null);
+
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; right: number }>({ top: 86, right: 16 });
+  const [isDropdownClosing, setIsDropdownClosing] = useState(false);
+  const headerDropdownTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerFlyToCart = (
+    product: Producto,
+    qty: number,
+    sourceElement?: HTMLElement | null
+  ) => {
+    // 1. Forzar la reaparición inmediata del Header para que el carrito esté 100% visible
+    setIsHeaderVisible(true);
+
+    const modalCartBtn = document.getElementById('modal-cart-button');
+    const isModalCartActive = Boolean(modalCartBtn && modalCartBtn.offsetParent !== null);
+    const cartBtn = isModalCartActive
+      ? modalCartBtn
+      : ((window.innerWidth < 768 ? document.getElementById('header-cart-button-mobile') : document.getElementById('header-cart-button')) || document.getElementById('header-cart-button') || document.getElementById('header-cart-button-mobile'));
+    const cartRect = cartBtn
+      ? cartBtn.getBoundingClientRect()
+      : { left: window.innerWidth - 50, top: 20, width: 36, height: 36 };
+
+    const targetX = cartRect.left + cartRect.width / 2;
+    const targetY = cartRect.top + cartRect.height / 2;
+
+    let startX = window.innerWidth / 2;
+    let startY = window.innerHeight / 2;
+
+    if (sourceElement) {
+      const rect = sourceElement.getBoundingClientRect();
+      startX = rect.left + rect.width / 2;
+      startY = rect.top + rect.height / 2;
+    } else {
+      const qvImg = document.getElementById('quickview-main-image');
+      if (qvImg) {
+        const rect = qvImg.getBoundingClientRect();
+        startX = rect.left + rect.width / 2;
+        startY = rect.top + rect.height / 2;
+      }
+    }
+
+    const rawImg = product.variante_imagen_miniatura || product.imagen_portada || product.imagen_url || product.link || '';
+    const imgUrl = rawImg ? formatDirectImageUrl(rawImg) : '';
+
+    const flyId = Date.now();
+    setFlyingItem({
+      id: flyId,
+      imageUrl: imgUrl,
+      startX,
+      startY,
+      targetX,
+      targetY,
+      isFlying: false
+    });
+
+    // Activar transición de vuelo en el siguiente cuadro de animación
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setFlyingItem((curr) => (curr?.id === flyId ? { ...curr, isFlying: true } : curr));
+      });
+    });
+
+    // Duración del vuelo hacia el ícono del Header: 620ms
+    setTimeout(() => {
+      setFlyingItem((curr) => (curr?.id === flyId ? null : curr));
+
+      // Rebote visual (bounce) en el ícono del carrito en el Header
+      setIsCartBouncing(true);
+      setTimeout(() => setIsCartBouncing(false), 450);
+
+      // Calcular posición anclada exacta debajo del botón del carrito visible (Modal o Header)
+      const currentCartBtn = isModalCartActive
+        ? modalCartBtn
+        : ((window.innerWidth < 768 ? document.getElementById('header-cart-button-mobile') : document.getElementById('header-cart-button')) || document.getElementById('header-cart-button') || document.getElementById('header-cart-button-mobile'));
+      if (currentCartBtn) {
+        const cRect = currentCartBtn.getBoundingClientRect();
+        setDropdownPosition({
+          top: Math.max(10, cRect.bottom + 8),
+          right: Math.max(8, window.innerWidth - cRect.right)
+        });
+      }
+
+      // Despliegue de la tarjeta minimalista (Dropdown) con animación de entrada
+      const unitPrice = product.precio_venta_ref || product.precio_mayor || 0;
+      setIsDropdownClosing(false);
+      setAddedHeaderDropdown({
+        id: flyId,
+        productName: product.nombre,
+        imageUrl: rawImg,
+        priceUSD: unitPrice,
+        priceBS: unitPrice * tasaBCV,
+        quantity: qty
+      });
+
+      if (headerDropdownTimerRef.current) {
+        clearTimeout(headerDropdownTimerRef.current);
+      }
+      // Mantener visible durante unos 3 segundos y deslizarse suavemente hacia arriba
+      headerDropdownTimerRef.current = setTimeout(() => {
+        setIsDropdownClosing(true);
+        setTimeout(() => {
+          setAddedHeaderDropdown((curr) => (curr?.id === flyId ? null : curr));
+          setIsDropdownClosing(false);
+        }, 300);
+      }, 2900);
+    }, 620);
+  };
+
   useEffect(() => {
     try {
       const q = query(collection(db, 'productos'));
@@ -545,10 +714,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           const data = docSnap.data() as any;
           const rawLink = data.link || (data.imagen_url && data.imagen_url.includes('http') ? data.imagen_url : '');
           const idOnly = extractDriveFileId(rawLink || data.imagen_url) || (!data.imagen_url?.includes('/') ? data.imagen_url : '');
+          
+          // Los nombres de las variantes en Firestore son legítimos y se mantienen intactos
+          const varianteNombre = data.variante_nombre;
+          
+          // Corregir únicamente posibles desalineaciones en el texto del nombre secundario
+          let nombreItem = data.nombre || '';
+          if (docSnap.id === 'J5LtYs3rOF9iuwk2isUY') {
+            nombreItem = 'tornillos decorativos - pua negro (par)';
+          } else if (docSnap.id === 'W6l5zqNhGRwVskCwBgoA') {
+            nombreItem = 'tornillos decorativos - pua rojo (par)';
+          }
+
           return {
             id: docSnap.id,
             ...data,
-            nombre: removeAccents(data.nombre || ''),
+            variante_nombre: varianteNombre,
+            nombre: removeAccents(nombreItem),
             categoria: removeAccents(data.categoria || ''),
             subcategoria: data.subcategoria ? removeAccents(String(data.subcategoria)).trim() : '',
             subcategorias: Array.isArray(data.subcategorias)
@@ -574,7 +756,26 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
   // Definitive source of products (prop or direct snapshot)
   const sourceProducts = useMemo(() => {
-    return products.length > 0 ? products : dbProducts;
+    const rawList = products.length > 0 ? products : dbProducts;
+    return rawList.map(p => {
+      if (p.id === 'J5LtYs3rOF9iuwk2isUY') {
+        return {
+          ...p,
+          variante_nombre: 'negro',
+          nombre: 'tornillos decorativos - pua negro (par)',
+          imagen_url: p.imagen_url || '1dx2Siz9X1ZfcX5SRuy9e52-NyJ_HBLXt'
+        };
+      }
+      if (p.id === 'W6l5zqNhGRwVskCwBgoA') {
+        return {
+          ...p,
+          variante_nombre: 'rojo',
+          nombre: 'tornillos decorativos - pua rojo (par)',
+          imagen_url: p.imagen_url || '1tSIc-2TErMaUTnK6imlbnGjzZCFZ_BO0'
+        };
+      }
+      return p;
+    });
   }, [products, dbProducts]);
 
   // Store Hidden Categories (synced with Firestore and localStorage)
@@ -775,6 +976,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           setIsTextEditorOpen(false);
         } else if (isPaymentMethodsModalOpen) {
           setIsPaymentMethodsModalOpen(false);
+        } else if (isVariantsModalOpen) {
+          setIsVariantsModalOpen(false);
+        } else if (isMobileMenuOpen) {
+          setIsMobileMenuOpen(false);
+        } else if (isMobileSearchOpen) {
+          setIsMobileSearchOpen(false);
         } else if (mobileExpandedCategory) {
           setMobileExpandedCategory(null);
         }
@@ -790,8 +997,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     isCategoryModalOpen,
     isTextEditorOpen,
     isPaymentMethodsModalOpen,
+    isVariantsModalOpen,
+    isMobileMenuOpen,
+    isMobileSearchOpen,
     mobileExpandedCategory
   ]);
+
+  // Bloqueo de Scroll (Body Scroll Lock): aplica overflow: hidden al body cuando se abre el modal o panel
+  useEffect(() => {
+    const isLocked = Boolean(quickViewProduct || isCheckoutOpen || isCartOpen || isMobileMenuOpen || completedOrder);
+    if (isLocked) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow || '';
+      };
+    }
+  }, [quickViewProduct, isCheckoutOpen, isCartOpen, isMobileMenuOpen, completedOrder]);
 
   // Cerrar el menú desplegado en móvil al tocar fuera de la barra de categorías
   useEffect(() => {
@@ -830,10 +1052,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     return Array.from(catMap.values()).sort((a, b) => a.localeCompare(b));
   }, [sourceProducts, hiddenCategories]);
 
-  // 3. EXTRACCIÓN DINÁMICA DE SUBCATEGORÍAS (useMemo)
+  // 3. EXTRACCIÓN DINÁMICA DE SUBCATEGORÍAS CON MINIATURAS VISUALES (useMemo)
   // Nota: Se excluye explícitamente cualquier subcategoría cuyo nombre coincida con la categoría general
   const subcategoriesByCategory = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
+    const map = new Map<string, Map<string, { count: number; image?: string }>>();
     sourceProducts.forEach((p) => {
       const stock = Number(p.stock_disponible ?? 0);
       if (isNaN(stock) || stock <= 0) return;
@@ -851,6 +1073,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         });
       }
       if (candidates.length === 0) return;
+
+      const prodImg =
+        p.variante_imagen_miniatura ||
+        p.imagen_portada ||
+        p.imagen_url ||
+        (Array.isArray(p.imagenes) && p.imagenes[0]) ||
+        p.link;
 
       const prodKeys = getProductCategoryKeys(p);
       const prodNames = getProductCategoryNames(p);
@@ -881,14 +1110,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           }
 
           const displaySub = formatSubcategoryDisplay(rawSub) || rawSub;
-          const subMap = map.get(catName) || new Map<string, number>();
-          subMap.set(displaySub, (subMap.get(displaySub) || 0) + 1);
+          const subMap = map.get(catName) || new Map<string, { count: number; image?: string }>();
+          const existing = subMap.get(displaySub) || { count: 0, image: undefined };
+          subMap.set(displaySub, {
+            count: existing.count + 1,
+            image: existing.image || prodImg || undefined,
+          });
           map.set(catName, subMap);
         });
       });
     });
 
-    const result: Record<string, { name: string; count: number }[]> = {};
+    const result: Record<string, { name: string; count: number; image?: string }[]> = {};
     map.forEach((subMap, catName) => {
       const catKey = getCategoryKey(catName);
       const items = Array.from(subMap.entries())
@@ -900,7 +1133,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             name.toLowerCase().trim() !== catName.toLowerCase().trim()
           );
         })
-        .map(([name, count]) => ({ name, count }))
+        .map(([name, data]) => ({ name, count: data.count, image: data.image }))
         .sort((a, b) => a.name.localeCompare(b.name));
 
       if (items.length > 0) {
@@ -956,8 +1189,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           if (!matchesSubcat && Array.isArray(p.subcategorias)) {
             matchesSubcat = p.subcategorias.some(s => getSubcategoryKey(s) === targetSubKey || normalizeSearch(s) === targetSubNorm);
           }
-          if (!matchesSubcat && p.grupo_id) {
-            const groupSiblings = sourceProducts.filter(v => v.grupo_id === p.grupo_id);
+          if (!matchesSubcat && isValidGroupId(p.grupo_id)) {
+            const groupSiblings = sourceProducts.filter(v => isValidGroupId(v.grupo_id) && v.grupo_id === p.grupo_id);
             matchesSubcat = groupSiblings.some(v => {
               const vKeys = getProductSubcategoryKeys(v);
               if (vKeys.includes(targetSubKey)) return true;
@@ -983,9 +1216,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       const scoredList = baseProducts.map((p) => {
         let score = calculateProductSearchScore(p, query);
 
-        // Si pertenece a un grupo, tomar también el score de las variantes hermanas para que el grupo ascienda
-        if (p.grupo_id) {
-          const siblings = sourceProducts.filter(v => v.grupo_id === p.grupo_id);
+        // Si pertenece a un grupo válido, tomar también el score de las variantes hermanas para que el grupo ascienda
+        if (isValidGroupId(p.grupo_id)) {
+          const siblings = sourceProducts.filter(v => isValidGroupId(v.grupo_id) && v.grupo_id === p.grupo_id);
           for (const sib of siblings) {
             const sScore = calculateProductSearchScore(sib, query);
             if (sScore > score) {
@@ -1051,12 +1284,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const catalogItems = useMemo(() => {
     const groupMap = new Map<string, Producto[]>();
 
-    // 1. Clasificar variantes por grupo_id
-    filteredProducts.forEach(p => {
-      if (p.grupo_id) {
-        const list = groupMap.get(p.grupo_id) || [];
+    // 1. Clasificar variantes por grupo_id desde sourceProducts para mantener integridad total de la agrupación
+    // REGLA: Si grupo_id es null, undefined, "", "sin_grupo" o "default", NUNCA se agrupa.
+    sourceProducts.forEach(p => {
+      if (isValidGroupId(p.grupo_id) && (Number(p.stock_disponible) || 0) > 0) {
+        const gid = p.grupo_id!.trim();
+        const list = groupMap.get(gid) || [];
         list.push(p);
-        groupMap.set(p.grupo_id, list);
+        groupMap.set(gid, list);
       }
     });
 
@@ -1082,11 +1317,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     }> = [];
 
     filteredProducts.forEach(p => {
-      if (p.grupo_id) {
-        if (processedGroupIds.has(p.grupo_id)) return;
-        processedGroupIds.add(p.grupo_id);
+      if (isValidGroupId(p.grupo_id)) {
+        const gid = p.grupo_id!.trim();
+        if (processedGroupIds.has(gid)) return;
+        processedGroupIds.add(gid);
 
-        const variants = groupMap.get(p.grupo_id) || [p];
+        const variants = groupMap.get(gid) || [p];
 
         // 1. Detección de si el grupo tiene kit (grupo_tiene_kit)
         const hasKit = Boolean(
@@ -1297,12 +1533,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     });
 
     return items;
-  }, [filteredProducts]);
+  }, [filteredProducts, sourceProducts, searchQuery]);
 
-  // Cart Totals
+  // Cart Totals: Solo suma los productos con cantidad activa (> 0)
   const cartTotals = useMemo(() => {
-    const totalUSD = cart.reduce((sum, item) => sum + (item.precio_unitario * item.quantity), 0);
-    const totalUnits = cart.reduce((sum, item) => sum + item.quantity, 0);
+    const activeItems = cart.filter((item) => item.quantity > 0);
+    const totalUSD = activeItems.reduce((sum, item) => sum + (item.precio_unitario * item.quantity), 0);
+    const totalUnits = activeItems.reduce((sum, item) => sum + item.quantity, 0);
     const totalBS = totalUSD * tasaBCV;
     return {
       totalUSD: Number(totalUSD.toFixed(2)),
@@ -1311,8 +1548,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     };
   }, [cart, tasaBCV]);
 
-  // Add to cart
-  const handleAddToCart = (product: Producto, qty: number = 1) => {
+  // Add to cart con soporte de feedback espacial Fly-to-Cart hacia el Header
+  const handleAddToCart = (
+    product: Producto, 
+    qty: number = 1,
+    sourceElement?: HTMLElement | null
+  ) => {
     let unitPrice = product.precio_venta_ref || product.precio_mayor || 0;
     const isKit = Boolean(product.es_kit || product.variante_nombre?.toLowerCase() === 'kit');
 
@@ -1322,7 +1563,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       let kitPrice = product.precio_venta_ref || product.grupo_kit_precio || 0;
       let kitComponents: string[] = product.kit_componentes_ids || [];
 
-      if (product.grupo_id) {
+      if (isValidGroupId(product.grupo_id)) {
         const groupItem = catalogItems.find(it => it.groupId === product.grupo_id || it.id === product.grupo_id);
         if (groupItem) {
           if (!kitPrice || kitPrice <= 0 || (groupItem.kitVariant && kitPrice < (groupItem.kitVariant.precio_venta_ref || 0))) {
@@ -1363,7 +1604,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       if (existingIdx >= 0) {
         return prevCart.map((item, idx) => {
           if (idx === existingIdx) {
-            const newQty = item.quantity + qty;
+            // Si estaba en 0 (pausa), reactivar sumando sobre 0
+            const baseQty = item.quantity > 0 ? item.quantity : 0;
+            const newQty = baseQty + qty;
             return {
               ...item,
               product: displayProduct,
@@ -1387,9 +1630,15 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       }
     });
 
+    // Forzar la reaparición inmediata del Header para que el carrito esté 100% visible
+    setIsHeaderVisible(true);
+
     // Animation trigger
     setAddedAnimationId(displayProduct.id);
     setTimeout(() => setAddedAnimationId(null), 1800);
+
+    // Animación espacial "Fly-to-Cart" hacia el ícono del Header y Mini-cart Dropdown
+    triggerFlyToCart(displayProduct, qty, sourceElement);
   };
 
   // Buy now (add to cart & open checkout immediately)
@@ -1400,19 +1649,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     setIsCheckoutOpen(true);
   };
 
-  // Update quantity in cart
+  // Update quantity in cart: permite valor 0 sin borrar del DOM para prevención de borrado accidental
   const handleUpdateCartQty = (productId: string, newQty: number) => {
-    if (newQty <= 0) {
-      handleRemoveFromCart(productId);
-      return;
-    }
+    const safeQty = Math.max(0, newQty);
     setCart((prevCart) =>
       prevCart.map((item) => {
         if (item.product.id === productId) {
           return {
             ...item,
-            quantity: newQty,
-            subtotal: Number((item.precio_unitario * newQty).toFixed(2))
+            quantity: safeQty,
+            subtotal: Number((item.precio_unitario * safeQty).toFixed(2))
           };
         }
         return item;
@@ -1420,11 +1666,21 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     );
   };
 
+  // Finalizar compra desde el panel lateral: filtra automáticamente productos en 0
+  const handleProceedToCheckout = () => {
+    const activeItems = cart.filter((item) => item.quantity > 0);
+    if (activeItems.length === 0) return;
+    setCart(activeItems);
+    setIsCartOpen(false);
+    setCheckoutStep(1);
+    setIsCheckoutOpen(true);
+  };
+
   // Helper to open QuickView modal
   const openQuickView = (variant: Producto, keepSelectedKit: boolean = false) => {
     let effectiveVariant = variant;
     // Si la variante enviada es el kit pero no se forzó mantenerlo (ej: apertura inicial desde imagen/título), preseleccionar la primera variante individual
-    if (!keepSelectedKit && effectiveVariant.es_kit && effectiveVariant.grupo_id) {
+    if (!keepSelectedKit && effectiveVariant.es_kit && isValidGroupId(effectiveVariant.grupo_id)) {
       const parent = catalogItems.find(it => it.groupId === effectiveVariant.grupo_id || it.id === effectiveVariant.grupo_id);
       if (parent && parent.individualVariants && parent.individualVariants.length > 0) {
         effectiveVariant = parent.individualVariants[0];
@@ -1437,7 +1693,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     setQuickViewAdded(false);
   };
 
-  // Apertura desde la tarjeta del catálogo: si el usuario ya seleccionó una opción (incluyendo el Kit), abrir con esa opción; si no, preselecciona la primera individual
+  // Apertura desde la tarjeta del catálogo: si el usuario ya seleccionó una opción, abrir con esa opción; si no, abre con la misma variante activa mostrada en la tarjeta
   const handleOpenCardQuickView = (item: (typeof catalogItems)[0]) => {
     const selectedId = selectedVariantMap[item.id];
     if (selectedId) {
@@ -1447,14 +1703,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         return;
       }
     }
-    // Si no ha seleccionado ninguna miniatura en la tarjeta, preselecciona la primera individual
-    if (item.hasKit && item.individualVariants && item.individualVariants.length > 0) {
-      openQuickView(item.individualVariants[0]);
-    } else if (item.isGroup && item.variants.length > 0) {
-      openQuickView(item.variants.find(v => !v.es_kit) || item.coverProduct);
-    } else {
-      openQuickView(item.coverProduct);
-    }
+    // Si no ha seleccionado ninguna miniatura en la tarjeta, abre con la misma variante activa de portada mostrada en la tarjeta
+    openQuickView(item.coverProduct);
   };
 
   // Remove from cart
@@ -1510,8 +1760,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     e.preventDefault();
     setOrderFormError(null);
 
-    if (cart.length === 0) {
-      setOrderFormError("Tu carrito está vacío. Agrega productos antes de finalizar la compra.");
+    const activeCart = cart.filter((item) => item.quantity > 0);
+    if (activeCart.length === 0) {
+      setOrderFormError("Tu carrito está vacío o no contiene productos con cantidad válida.");
       return;
     }
     if (!clienteNombre.trim()) {
@@ -1545,7 +1796,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       const orderNumber = `BIKER-${Date.now().toString().slice(-6)}`;
       const fullShippingAddress = `${agenciaSeleccionada.toUpperCase()}: ${direccionAgencia.trim()}`;
 
-      const orderItems: PedidoTiendaItem[] = cart.map((item) => ({
+      const orderItems: PedidoTiendaItem[] = activeCart.map((item) => ({
         productId: item.product.id,
         sku: item.product.sku || '',
         nombre: removeAccents(item.product.nombre || 'Producto'),
@@ -1802,20 +2053,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-white text-[#111111] font-sans selection:bg-[#FFC107] selection:text-black pb-[max(2rem,env(safe-area-inset-bottom))] pt-[130px] sm:pt-[138px]">
+    <div className="min-h-screen bg-white text-[#111111] font-sans selection:bg-[#FFC107] selection:text-black pb-[max(2rem,env(safe-area-inset-bottom))] pt-[94px] md:pt-[138px]">
       {/* ========================================================= */}
       {/* SMART STICKY HEADER (UNIFICADO EN NEGRO PURO #000000)      */}
       {/* ========================================================= */}
       <div 
-        className={`fixed top-0 left-0 right-0 z-40 transition-transform duration-300 ease-in-out bg-[#000000] shadow-md ${
-          isHeaderVisible ? 'translate-y-0' : '-translate-y-full'
+        className={`fixed top-0 left-0 right-0 z-40 transition-transform duration-300 ease-in-out bg-[#000000] ${
+          isHeaderVisible ? 'translate-y-0' : 'translate-y-0 md:-translate-y-full'
         }`}
       >
-        {/* TOP ANNOUNCEMENT BAR (DENTRO DEL CONTENEDOR UNIFICADO #000000) */}
-        <div className="bg-[#000000] text-white px-3 sm:px-6 py-1.5 pt-[max(0.6rem,calc(env(safe-area-inset-top)+0.2rem))] text-[10px] sm:text-xs font-semibold tracking-wide flex flex-wrap items-center justify-between gap-2 border-b border-white/10">
+        {/* TOP ANNOUNCEMENT BAR (OCULTA EN MÓVIL ESTILO SHEIN, VISIBLE EN DESKTOP) */}
+        <div className="hidden md:flex bg-[#000000] text-white px-3 sm:px-6 py-1.5 pt-[max(0.6rem,calc(env(safe-area-inset-top)+0.2rem))] text-[10px] sm:text-xs font-semibold tracking-wide flex-wrap items-center justify-between gap-2 border-b border-white/10">
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar">
-            <span className="flex items-center gap-1 uppercase font-bold text-gray-200">
-              <Truck size={13} className="text-[#FFC107] stroke-[2.5]" />
+            <span className="flex items-center gap-1 font-medium text-gray-200">
+              <Truck size={13} className="text-[#FFC107] stroke-[2]" />
               <EditableStoreText
                 textKey="topAnnouncement"
                 value={getText('topAnnouncement')}
@@ -1826,8 +2077,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               />
             </span>
             <span className="opacity-30 text-gray-500">|</span>
-            <span className="font-mono bg-white/10 text-white px-2 py-0.5 rounded border border-white/15 flex items-center gap-1 font-bold text-[10.5px]">
-              💵 Tasa Oficial BCV: <strong className="text-[#FFC107]">Bs. {formatVES(tasaBCV)}</strong>
+            <span className="font-mono bg-white/10 text-white px-2 py-0.5 rounded border border-white/15 flex items-center gap-1 font-medium text-[10.5px]">
+              💵 Tasa oficial BCV: <strong className="text-[#FFC107] font-semibold">Bs. {formatVES(tasaBCV)}</strong>
               {isFetchingTasa && (
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#FFC107] animate-pulse" title="Sincronizando tasa oficial en vivo..." />
               )}
@@ -1838,46 +2089,61 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <button
               type="button"
               onClick={handleCopyStoreLink}
-              className="hidden sm:flex items-center gap-1 bg-white/10 hover:bg-white/20 text-gray-200 px-2.5 py-0.5 rounded text-[9.5px] uppercase font-bold transition-colors cursor-pointer"
+              className="hidden sm:flex items-center gap-1 bg-white/10 hover:bg-white/20 text-gray-200 px-2.5 py-0.5 rounded text-[9.5px] font-medium transition-colors cursor-pointer"
               title="Copiar enlace para compartir esta tienda con clientes"
             >
               {copiedLink ? <Check size={11} className="text-emerald-400" /> : <Share2 size={11} />}
-              <span>{copiedLink ? '¡Enlace Copiado!' : 'Compartir Tienda'}</span>
+              <span>{copiedLink ? '¡Enlace copiado!' : 'Compartir tienda'}</span>
             </button>
 
-            {isAdmin && (
+            {effectiveAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setVariantsModalInitialGroupId(null);
+                  setIsVariantsModalOpen(true);
+                }}
+                className="bg-white/10 hover:bg-white/20 text-[#FFC107] border border-[#FFC107]/40 px-2.5 py-0.5 rounded text-[9.5px] font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                title="Supervisar y gestionar variantes, grupos y desvincular productos mal agrupados"
+              >
+                <Boxes size={11} className="text-[#FFC107]" />
+                <span>Variantes y grupos</span>
+              </button>
+            )}
+
+            {effectiveAdmin && (
               <button
                 type="button"
                 onClick={() => {
                   setTextEditorInitialKey(null);
                   setIsTextEditorOpen(true);
                 }}
-                className="bg-white/10 hover:bg-white/20 text-[#FFC107] border border-[#FFC107]/40 px-2.5 py-0.5 rounded text-[9.5px] uppercase font-bold transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                className="bg-white/10 hover:bg-white/20 text-[#FFC107] border border-[#FFC107]/40 px-2.5 py-0.5 rounded text-[9.5px] font-medium transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
                 title="Editar todos los textos fijos, títulos y aclaratorias del e-commerce"
               >
                 <Edit3 size={11} className="text-[#FFC107]" />
-                <span>Editar Textos</span>
+                <span>Editar textos</span>
               </button>
             )}
 
-            {isAdmin && (
+            {effectiveAdmin && (
               <button
                 type="button"
                 onClick={() => setIsCategoryModalOpen(true)}
-                className="bg-white/10 hover:bg-white/20 text-[#FFC107] border border-[#FFC107]/30 px-2 py-0.5 rounded text-[9.5px] uppercase font-bold transition-colors cursor-pointer flex items-center gap-1"
+                className="bg-white/10 hover:bg-white/20 text-[#FFC107] border border-[#FFC107]/30 px-2 py-0.5 rounded text-[9.5px] font-medium transition-colors cursor-pointer flex items-center gap-1"
                 title="Configurar qué categorías se muestran a los clientes"
               >
                 <Sliders size={11} className="text-[#FFC107]" />
-                <span className="hidden sm:inline">Categorías Visibles</span>
+                <span className="hidden sm:inline">Categorías visibles</span>
                 <span className="sm:hidden">Categorías</span>
               </button>
             )}
 
-            {isAdmin && onExitToAdmin && (
+            {effectiveAdmin && onExitToAdmin && (
               <button
                 type="button"
                 onClick={onExitToAdmin}
-                className="bg-white/10 text-[#FFC107] hover:text-white px-2 py-0.5 rounded text-[9.5px] uppercase font-black transition-colors cursor-pointer flex items-center gap-1"
+                className="bg-white/10 text-[#FFC107] hover:text-white px-2 py-0.5 rounded text-[9.5px] font-medium transition-colors cursor-pointer flex items-center gap-1"
               >
                 <ArrowLeft size={11} />
                 <span>Volver</span>
@@ -1888,26 +2154,27 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
         {/* MAIN STORE HEADER (FONDO NEGRO PURO #000000) */}
         <header className="bg-[#000000]">
-          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-3 sm:gap-4">
+          {/* DESKTOP HEADER ROW */}
+          <div className="hidden md:flex max-w-7xl mx-auto px-6 py-3 items-center justify-between gap-4">
             {/* LOGO PRINCIPAL */}
             <div className="flex items-center gap-3 shrink-0">
               <div className="flex items-center">
                 <img src="/logo png.png" alt="Lo que los bikers quieren" className="h-12 sm:h-14 w-auto object-contain drop-shadow-sm" />
               </div>
-              <div className="hidden sm:block">
+              <div>
                 <EditableStoreText
                   textKey="headerSubtitle"
                   value={getText('headerSubtitle')}
                   isAdmin={isAdmin}
                   onOpenEditor={handleOpenTextEditorFor}
                   as="p"
-                  className="text-[8.5px] text-gray-300 font-bold uppercase tracking-wider"
+                  className="text-[8.5px] text-gray-300 font-normal tracking-wide"
                 />
               </div>
             </div>
 
             {/* OMNI SEARCH BAR CENTRAL: FONDO BLANCO PURO #FFFFFF, TEXTO Y PLACEHOLDER NEGRO CARBÓN #111111 */}
-            <div className="flex-1 max-w-xl hidden md:block">
+            <div className="flex-1 max-w-xl">
               <div className="relative flex items-center">
                 <input
                   type="text"
@@ -1920,8 +2187,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       setSelectedSubcategory(null);
                     }
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
                   placeholder={getText('searchPlaceholder') || "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."}
-                  className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-11 pr-10 py-2 text-xs sm:text-sm text-[#111111] placeholder:text-[#111111] font-medium outline-none transition-all shadow-sm"
+                  className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-11 pr-10 py-2 text-base md:text-sm text-[#111111] placeholder:text-[#111111] font-medium outline-none transition-all shadow-sm"
+                  style={{ fontSize: '16px' }}
                 />
                 <Search size={16} className="absolute left-4 text-[#111111] pointer-events-none" />
                 {searchQuery && (
@@ -1937,17 +2210,21 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             </div>
 
             {/* RIGHT ACTION BUTTON: CARRITO MINIMALISTA CON ÍCONO CLARO Y BADGE ROJO */}
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 relative">
               <button
+                id="header-cart-button"
                 type="button"
                 onClick={() => setIsCartOpen(true)}
-                className="relative p-2 sm:p-2.5 text-gray-200 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer flex items-center justify-center active:scale-95"
+                className={`relative p-2.5 text-gray-200 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer flex items-center justify-center active:scale-95 ${
+                  isCartBouncing ? 'scale-125 text-emerald-400 rotate-6 shadow-md' : ''
+                }`}
+                style={{ transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), color 0.2s ease' }}
                 title={`Carrito de compras (${cartTotals.totalUnits} ${cartTotals.totalUnits === 1 ? 'artículo' : 'artículos'})`}
                 aria-label={`Ver carrito de compras con ${cartTotals.totalUnits} artículos`}
               >
-                <ShoppingCart size={22} className="stroke-[2.2] text-gray-200 hover:text-white" />
+                <ShoppingCart size={22} className={`stroke-[2.2] transition-colors ${isCartBouncing ? 'text-emerald-400' : 'text-gray-200 hover:text-white'}`} />
                 {cartTotals.totalUnits > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs border border-[#000000] animate-scale-up">
+                  <span className={`absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs border border-[#000000] ${isCartBouncing ? 'animate-bounce scale-110' : 'animate-scale-up'}`}>
                     {cartTotals.totalUnits}
                   </span>
                 )}
@@ -1955,9 +2232,25 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             </div>
           </div>
 
-          {/* MOBILE SEARCH BAR: BLANCO PURO #FFFFFF, TEXTO Y PLACEHOLDER #111111 */}
-          <div className="px-3 pb-2.5 md:hidden">
-            <div className="relative flex items-center">
+          {/* MÓVIL: FILA ÚNICA HORIZONTAL (SINGLE-ROW CON BUSCADOR SIEMPRE VISIBLE) */}
+          <div className="md:hidden flex items-center gap-2 px-2.5 h-14 max-h-[60px] bg-[#000000] text-white w-full">
+            {/* 1. ÍCONO DE MENÚ HAMBURGUESA */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-1.5 -ml-0.5 text-gray-200 hover:text-white rounded-lg active:scale-95 cursor-pointer flex items-center justify-center shrink-0"
+              aria-label="Abrir menú"
+            >
+              <Menu size={22} strokeWidth={2.2} />
+            </button>
+
+            {/* 2. LOGO DE LA TIENDA (TAMAÑO COMPACTO) */}
+            <div className="flex items-center justify-center shrink-0">
+              <img src="/logo png.png" alt="Lo que los bikers quieren" className="h-7 w-auto object-contain drop-shadow-sm" />
+            </div>
+
+            {/* 3. CASILLA DE BÚSQUEDA (INPUT SIEMPRE VISIBLE, FLEX-1) */}
+            <div className="flex-1 min-w-0 relative flex items-center">
               <input
                 type="text"
                 value={searchQuery}
@@ -1969,26 +2262,92 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     setSelectedSubcategory(null);
                   }
                 }}
-                placeholder={getText('searchPlaceholder') || "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."}
-                className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-9 pr-8 py-2 text-xs text-[#111111] placeholder:text-[#111111] font-medium outline-none shadow-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                placeholder={getText('searchPlaceholder') || "buscar accesorios..."}
+                className="w-full bg-[#FFFFFF] border border-transparent focus:border-[#FF5200] rounded-xl pl-8 pr-7 py-1.5 text-base text-[#111111] placeholder:text-gray-500 font-medium outline-none shadow-xs truncate leading-normal"
+                style={{ fontSize: '16px' }}
               />
-              <Search size={14} className="absolute left-3 text-[#111111] pointer-events-none" />
+              <Search size={14} className="absolute left-2.5 text-gray-600 pointer-events-none shrink-0" />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 text-gray-500 hover:text-black p-1 cursor-pointer"
+                  className="absolute right-2 text-gray-500 hover:text-black p-1 cursor-pointer shrink-0"
+                  aria-label="Limpiar búsqueda"
                 >
-                  <X size={12} />
+                  <X size={13} />
                 </button>
               )}
             </div>
+
+            {/* 4. ÍCONO DEL CARRITO (CON BADGE DE CANTIDAD) */}
+            <button
+              id="header-cart-button-mobile"
+              type="button"
+              onClick={() => setIsCartOpen(true)}
+              className={`relative p-2 text-gray-200 hover:text-white rounded-lg transition-all cursor-pointer flex items-center justify-center active:scale-95 shrink-0 ${
+                isCartBouncing ? 'scale-125 text-emerald-400 rotate-6' : ''
+              }`}
+              title={`Carrito de compras (${cartTotals.totalUnits} ${cartTotals.totalUnits === 1 ? 'artículo' : 'artículos'})`}
+              aria-label={`Ver carrito de compras con ${cartTotals.totalUnits} artículos`}
+            >
+              <ShoppingCart size={20} className={`stroke-[2.2] transition-colors ${isCartBouncing ? 'text-emerald-400' : 'text-gray-200'}`} />
+              {cartTotals.totalUnits > 0 && (
+                <span className={`absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-1 rounded-full bg-red-600 text-white text-[9.5px] font-black flex items-center justify-center border border-[#000000] ${isCartBouncing ? 'animate-bounce scale-110' : 'animate-scale-up'}`}>
+                  {cartTotals.totalUnits}
+                </span>
+              )}
+            </button>
           </div>
 
-          {/* 5. MENÚ SUPERIOR CON DESPLEGABLE EN HOVER (TIPO SHEIN/AMAZON) */}
-          <div id="biker-category-header-bar" className="bg-[#0e121b] border-t border-white/5 relative z-30">
+          {/* MÓVIL: TIRA DELGADA DE CATEGORÍAS TIPO SHEIN (FONDO BLANCO, TEXTO DESLIZABLE SIN BORDES) */}
+          <div className="md:hidden bg-white px-3 py-2 overflow-x-auto flex items-center gap-5 no-scrollbar whitespace-nowrap">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategory('all');
+                setSelectedSubcategory(null);
+                setSearchQuery('');
+              }}
+              className={`text-xs transition-all cursor-pointer shrink-0 pb-1 border-b-2 ${
+                selectedCategory === 'all' && !selectedSubcategory
+                  ? 'text-black font-semibold border-black'
+                  : 'text-gray-500 hover:text-black font-normal border-transparent'
+              }`}
+            >
+              Todos los productos
+            </button>
+            {categories.map((cat) => {
+              const isCatSelected = getCategoryKey(selectedCategory) === getCategoryKey(cat);
+              return (
+                <button
+                  key={`mob-strip-${cat}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCategory(cat);
+                    setSelectedSubcategory(null);
+                    setSearchQuery('');
+                  }}
+                  className={`text-xs transition-all cursor-pointer shrink-0 pb-1 border-b-2 ${
+                    isCatSelected
+                      ? 'text-black font-semibold border-black'
+                      : 'text-gray-500 hover:text-black font-normal border-transparent'
+                  }`}
+                >
+                  {formatCategorySentenceCase(cat)}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 5. DESKTOP: MENÚ SUPERIOR CON DESPLEGABLE EN HOVER (TIPO SHEIN/AMAZON - TEXTO LIMPIO SIN PILLS) */}
+          <div id="biker-category-header-bar" className="hidden md:block bg-[#000000] border-t border-white/10 relative z-30">
             {/* Contenedor horizontal de categorías con scroll fluido sin barra forzada */}
-            <div className="px-3 sm:px-6 py-2 overflow-x-auto md:overflow-visible flex items-center gap-1.5 sm:gap-2 no-scrollbar">
+            <div className="max-w-[1720px] mx-auto px-4 sm:px-6 overflow-x-auto md:overflow-visible flex items-center gap-6 sm:gap-7 md:gap-8 no-scrollbar">
               <button
                 type="button"
                 onClick={() => {
@@ -1997,13 +2356,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   setSearchQuery('');
                   setMobileExpandedCategory(null);
                 }}
-                className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+                className={`py-2.5 text-xs sm:text-[13px] whitespace-nowrap transition-all cursor-pointer shrink-0 border-b-2 flex items-center gap-1.5 ${
                   selectedCategory === 'all' && !selectedSubcategory
-                    ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
-                    : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
+                    ? 'text-white font-medium border-white'
+                    : 'text-gray-300 hover:text-white font-normal border-transparent'
                 }`}
               >
-                🔥 Todos los Productos
+                <span>Todos los productos</span>
               </button>
 
               {categories.map((cat, catIdx) => {
@@ -2046,31 +2405,32 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         }
                         setSearchQuery('');
                       }}
-                      className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 ${
+                      className={`py-2.5 text-xs sm:text-[13px] whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border-b-2 ${
                         isCatSelected
-                          ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
-                          : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
+                          ? 'text-white font-medium border-white'
+                          : 'text-gray-300 hover:text-white font-normal border-transparent'
                       }`}
                     >
-                      <span>{cat}</span>
+                      <span>{formatCategorySentenceCase(cat)}</span>
                       {hasSubs && (
                         <ChevronDown 
-                          size={11} 
+                          size={12} 
                           className={`transition-transform duration-200 ${
                             isExpanded ? 'rotate-180' : ''
-                          } ${isCatSelected ? 'text-black' : 'text-slate-400'}`} 
+                          } ${isCatSelected ? 'text-white' : 'text-gray-400 group-hover:text-white'}`} 
                         />
                       )}
                     </button>
 
-                    {/* DESKTOP DROPDOWN: Flota bajo el botón en pantallas medianas y superiores sin scroll interno */}
+                    {/* DESKTOP DROPDOWN: Menú minimalista limpio estilo Shein / Apple (fondo blanco puro, lista en texto simple, sombras suaves) */}
                     {hasSubs && (
                       <div
-                        className={`hidden md:block absolute top-full left-0 pt-1.5 min-w-[210px] z-50 transition-all duration-200 ${
+                        className={`hidden md:block absolute top-full left-0 pt-2 z-50 transition-all duration-200 ${
                           isHovered ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-1 pointer-events-none'
                         }`}
                       >
-                        <div className="bg-[#0b0f19]/95 backdrop-blur-xl border border-amber-500/30 rounded-2xl p-2 shadow-2xl shadow-black/90 space-y-1">
+                        <div className="bg-white border border-gray-100 rounded-xl p-2 shadow-md min-w-[210px] max-w-[280px] space-y-0.5">
+                          {/* Primer elemento: "Ver todo" */}
                           <button
                             type="button"
                             onClick={() => {
@@ -2079,52 +2439,50 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               setSearchQuery('');
                               setHoveredCategory(null);
                             }}
-                            className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between cursor-pointer ${
                               isCatSelected && !selectedSubcategory
-                                ? 'bg-amber-400/20 text-amber-300 font-black'
-                                : 'text-slate-300 hover:text-white hover:bg-white/10'
+                                ? 'bg-gray-100 text-black font-semibold'
+                                : 'text-gray-600 hover:text-black hover:bg-gray-50 font-normal'
                             }`}
                           >
-                            <span>Ver todo en {cat}</span>
-                            <ArrowRight size={11} className="text-amber-400" />
+                            <span>Ver todo</span>
+                            <ArrowRight size={13} className="text-gray-400" />
                           </button>
 
-                          <div className="border-t border-white/10 my-1" />
+                          <div className="border-t border-gray-100 my-1" />
 
-                          {/* Lista sin max-h-56 ni scrollbar interno forzado */}
-                          <div className="space-y-0.5">
-                            {subs.map((subItem) => {
-                              const isSubSelected = isCatSelected && (
-                                selectedSubcategory?.toLowerCase() === subItem.name.toLowerCase() ||
-                                getSubcategoryKey(selectedSubcategory || '') === getSubcategoryKey(subItem.name)
-                              );
+                          {/* Lista limpia de subcategorías en texto simple con hover suave */}
+                          {subs.map((subItem) => {
+                            const isSubSelected = isCatSelected && (
+                              selectedSubcategory?.toLowerCase() === subItem.name.toLowerCase() ||
+                              getSubcategoryKey(selectedSubcategory || '') === getSubcategoryKey(subItem.name)
+                            );
 
-                              return (
-                                <button
-                                  key={`sub-${cat}-${subItem.name}`}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedCategory(cat);
-                                    setSelectedSubcategory(subItem.name);
-                                    setSearchQuery('');
-                                    setHoveredCategory(null);
-                                  }}
-                                  className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center justify-between transition-all cursor-pointer ${
-                                    isSubSelected
-                                      ? 'bg-amber-400 text-black font-black shadow-md shadow-amber-400/20'
-                                      : 'text-slate-300 hover:text-white hover:bg-white/5'
-                                  }`}
-                                >
-                                  <span className="truncate">{subItem.name}</span>
-                                  <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-md ${
-                                    isSubSelected ? 'bg-black/20 text-black' : 'bg-white/5 text-slate-400'
-                                  }`}>
-                                    {subItem.count}
+                            return (
+                              <button
+                                key={`sub-${cat}-${subItem.name}`}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedCategory(cat);
+                                  setSelectedSubcategory(subItem.name);
+                                  setSearchQuery('');
+                                  setHoveredCategory(null);
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between cursor-pointer ${
+                                  isSubSelected
+                                    ? 'bg-gray-100 text-black font-semibold'
+                                    : 'text-gray-600 hover:text-black hover:bg-gray-50 font-normal'
+                                }`}
+                              >
+                                <span className="truncate">{formatCategorySentenceCase(subItem.name)}</span>
+                                {subItem.count !== undefined && (
+                                  <span className="text-xs text-gray-400 font-normal ml-2 shrink-0">
+                                    ({subItem.count})
                                   </span>
-                                </button>
-                              );
-                            })}
-                          </div>
+                                )}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -2158,13 +2516,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           setSearchQuery('');
                           setMobileExpandedCategory(null);
                         }}
-                        className={`flex-1 text-left py-1 rounded-xl text-[11px] font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
+                        className={`flex-1 text-left py-1 rounded-xl text-[11px] font-bold flex items-center justify-between transition-all cursor-pointer ${
                           isCatSelected && !selectedSubcategory
                             ? 'text-amber-300'
                             : 'text-slate-200 hover:text-white'
                         }`}
                       >
-                        <span>Ver Todo en {cat}</span>
+                        <span>Ver todo</span>
                         <ArrowRight size={13} className="text-amber-400 shrink-0" />
                       </button>
                       <button
@@ -2197,13 +2555,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               setSearchQuery('');
                               setMobileExpandedCategory(null);
                             }}
-                            className={`w-full text-left p-2 rounded-xl text-[10.5px] font-bold flex items-center justify-between gap-1 transition-all cursor-pointer ${
+                            className={`w-full text-left p-2 rounded-xl text-[10.5px] font-medium flex items-center justify-between gap-1 transition-all cursor-pointer ${
                               isSubSelected
-                                ? 'bg-amber-400 text-black font-black shadow-md shadow-amber-400/20'
+                                ? 'bg-amber-400 text-black font-bold shadow-md shadow-amber-400/20'
                                 : 'bg-white/5 text-slate-200 hover:text-white hover:bg-white/10 border border-white/5'
                             }`}
                           >
-                            <span className="truncate">{subItem.name}</span>
+                            <span className="truncate">{formatCategorySentenceCase(subItem.name)}</span>
                             <span className={`text-[8.5px] font-mono font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
                               isSubSelected ? 'bg-black/25 text-black' : 'bg-white/10 text-slate-400'
                             }`}>
@@ -2222,138 +2580,53 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       </div>
 
       {/* ========================================================= */}
-      {/* HERO BANNER BIKER (ESTILO LUMINOSO Y DE ALTA CONVERSIÓN)    */}
+      {/* TIRA DE CONFIANZA ULTRA-MINIMALISTA (TRUST BADGES)        */}
       {/* ========================================================= */}
-      <section className="bg-gradient-to-r from-amber-50/70 via-orange-50/30 to-white border-b border-[#E5E7EB] py-5 sm:py-7 px-3 sm:px-6">
-        <div className="max-w-7xl mx-auto relative z-10 flex flex-col md:flex-row items-center justify-between gap-5">
-          <div className="space-y-2.5 max-w-2xl text-center md:text-left">
-            <h1 className="font-extrabold text-2xl sm:text-3xl lg:text-4xl uppercase tracking-tight text-[#111111] leading-tight">
-              LO QUE LOS BIKERS QUIEREN
-            </h1>
+      <div className="bg-white py-2 px-2 sm:px-4">
+        <div className="max-w-[1720px] mx-auto flex items-center justify-center flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500 font-normal">
+          <div className="flex items-center gap-1.5">
+            <ShieldCheck size={14} className="text-gray-400 stroke-[1.8]" />
             <EditableStoreText
-              textKey="heroSubtitle"
-              value={getText('heroSubtitle')}
+              textKey="badgeProtected"
+              value={getText('badgeProtected')}
               isAdmin={isAdmin}
               onOpenEditor={handleOpenTextEditorFor}
-              as="p"
-              className="text-xs sm:text-sm text-[#555555] font-medium max-w-xl leading-relaxed"
+              as="span"
+              className="text-xs text-gray-500 font-normal"
             />
-
-            <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 pt-1 text-[11px] sm:text-xs font-semibold text-[#111111]">
-              <span className="flex items-center gap-1.5 bg-white border border-gray-200 px-2.5 py-1 rounded-lg shadow-xs">
-                <CheckCircle2 size={13} className="text-emerald-600" />
-                <EditableStoreText
-                  textKey="badgeProtected"
-                  value={getText('badgeProtected')}
-                  isAdmin={isAdmin}
-                  onOpenEditor={handleOpenTextEditorFor}
-                  as="span"
-                />
-              </span>
-              <span className="flex items-center gap-1.5 bg-white border border-gray-200 px-2.5 py-1 rounded-lg shadow-xs">
-                <Truck size={13} className="text-amber-600" />
-                <EditableStoreText
-                  textKey="badgeDispatch"
-                  value={getText('badgeDispatch')}
-                  isAdmin={isAdmin}
-                  onOpenEditor={handleOpenTextEditorFor}
-                  as="span"
-                />
-              </span>
-              <span className="flex items-center gap-1.5 bg-white border border-gray-200 px-2.5 py-1 rounded-lg shadow-xs">
-                <ShieldCheck size={13} className="text-blue-600" />
-                <EditableStoreText
-                  textKey="badgePrices"
-                  value={getText('badgePrices')}
-                  isAdmin={isAdmin}
-                  onOpenEditor={handleOpenTextEditorFor}
-                  as="span"
-                />
-              </span>
-            </div>
           </div>
-
-          {/* QUICK PROMO CARD (FONDO BLANCO Y BORDE SUAVE) */}
-          <div className="w-full max-w-sm bg-white border border-[#E5E7EB] rounded-2xl p-4 shadow-sm relative">
-            <span className="absolute -top-2.5 right-4 bg-[#FFC107] text-[#111111] text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full shadow-xs">
-              ⚡ Envíos Diarios
-            </span>
-            <div className="space-y-2">
-              <EditableStoreText
-                textKey="stepsBoxTitle"
-                value={getText('stepsBoxTitle')}
-                isAdmin={isAdmin}
-                onOpenEditor={handleOpenTextEditorFor}
-                as="p"
-                className="text-[10px] font-black uppercase tracking-wider text-[#111111]"
-              />
-              <div className="space-y-1.5 text-xs text-[#555555]">
-                <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-[#FFC107] text-[#111111] text-[9.5px] font-black flex items-center justify-center shrink-0 mt-0.5">1</span>
-                  <EditableStoreText
-                    textKey="step1"
-                    value={getText('step1')}
-                    isAdmin={isAdmin}
-                    onOpenEditor={handleOpenTextEditorFor}
-                    as="span"
-                  />
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-[#FFC107] text-[#111111] text-[9.5px] font-black flex items-center justify-center shrink-0 mt-0.5">2</span>
-                  <EditableStoreText
-                    textKey="step2"
-                    value={getText('step2')}
-                    isAdmin={isAdmin}
-                    onOpenEditor={handleOpenTextEditorFor}
-                    as="span"
-                  />
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded-full bg-[#FFC107] text-[#111111] text-[9.5px] font-black flex items-center justify-center shrink-0 mt-0.5">3</span>
-                  <EditableStoreText
-                    textKey="step3"
-                    value={getText('step3')}
-                    isAdmin={isAdmin}
-                    onOpenEditor={handleOpenTextEditorFor}
-                    as="span"
-                  />
-                </div>
-              </div>
-            </div>
+          <span className="text-gray-300 hidden sm:inline">•</span>
+          <div className="flex items-center gap-1.5">
+            <Truck size={14} className="text-gray-400 stroke-[1.8]" />
+            <EditableStoreText
+              textKey="badgeDispatch"
+              value={getText('badgeDispatch') || "Recibe en 24h/48h"}
+              isAdmin={isAdmin}
+              onOpenEditor={handleOpenTextEditorFor}
+              as="span"
+              className="text-xs text-gray-500 font-normal"
+            />
           </div>
         </div>
-      </section>
+      </div>
 
       {/* ========================================================= */}
       {/* STORE CATALOG & FILTERS                                   */}
       {/* ========================================================= */}
-      <main className="max-w-7xl mx-auto px-2.5 sm:px-4 py-4 sm:py-6 space-y-4">
-        {/* FILTERS TOOLBAR */}
-        <div className="flex items-center justify-between flex-wrap gap-2.5 pb-3 border-b border-[#E5E7EB]">
+      <main className="max-w-[1720px] mx-auto px-2 sm:px-3 md:px-4 lg:px-5 pt-1 sm:pt-2 pb-6 sm:pb-8 space-y-2.5">
+        {/* ACTIVE FILTERS & SORTING ROW (MINIMALISTA, SIN BORDES DIVISORES NI TÍTULO REDUNDANTE) */}
+        <div className="flex items-center justify-between flex-wrap gap-2 pb-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <EditableStoreText
-                textKey="catalogTitle"
-                value={getText('catalogTitle')}
-                isAdmin={isAdmin}
-                onOpenEditor={handleOpenTextEditorFor}
-                as="span"
-                className="font-extrabold text-xl tracking-tight uppercase text-[#111111]"
-              />
-              <span className="font-extrabold text-xl tracking-tight uppercase text-[#FF5200]">
-                ({catalogItems.length})
-              </span>
-            </div>
             {!searchQuery && selectedCategory !== 'all' && (
-              <span className="text-[10.5px] font-bold uppercase bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
-                <span>{selectedCategory}</span>
+              <span className="text-xs font-normal bg-gray-100 text-gray-800 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                <span>{formatCategorySentenceCase(selectedCategory)}</span>
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedCategory('all');
                     setSelectedSubcategory(null);
                   }}
-                  className="ml-1 text-amber-700 hover:text-black p-0.5 rounded-full hover:bg-amber-200/60 transition-colors cursor-pointer"
+                  className="ml-1 text-gray-500 hover:text-black p-0.5 rounded-full hover:bg-gray-200 transition-colors cursor-pointer"
                   title="Quitar categoría"
                 >
                   <X size={10} />
@@ -2361,12 +2634,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               </span>
             )}
             {!searchQuery && selectedSubcategory && (
-              <span className="text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shadow-sm">
-                <span>Subcategoría: {selectedSubcategory}</span>
+              <span className="text-xs font-normal bg-gray-100 text-gray-800 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                <span>Subcategoría: {formatCategorySentenceCase(selectedSubcategory)}</span>
                 <button
                   type="button"
                   onClick={() => setSelectedSubcategory(null)}
-                  className="hover:text-white ml-0.5 cursor-pointer text-amber-300"
+                  className="hover:text-black ml-0.5 cursor-pointer text-gray-500"
                   title="Quitar filtro de subcategoría"
                 >
                   ✕
@@ -2374,12 +2647,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               </span>
             )}
             {searchQuery && (
-              <span className="text-[10.5px] font-bold uppercase bg-amber-50 text-amber-900 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
+              <span className="text-xs font-normal bg-gray-100 text-gray-800 px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
                 <span>Búsqueda: "{searchQuery}"</span>
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="ml-1 text-amber-800 hover:text-black p-0.5 rounded-full hover:bg-amber-200/60 transition-colors cursor-pointer"
+                  className="ml-1 text-gray-500 hover:text-black p-0.5 rounded-full hover:bg-gray-200 transition-colors cursor-pointer"
                   title="Quitar búsqueda"
                 >
                   <X size={10} />
@@ -2388,33 +2661,35 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-3 ml-auto">
             {/* Ordenar por */}
-            <div className="flex items-center gap-1.5 bg-gray-50 px-2.5 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-[#111111]">
-              <SlidersHorizontal size={13} className="text-amber-500" />
+            <div className="flex items-center gap-1.5 text-xs font-normal text-gray-500">
+              <SlidersHorizontal size={12} className="text-gray-400" />
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-transparent text-xs text-[#111111] outline-none cursor-pointer font-bold"
+                className="bg-transparent text-xs text-gray-600 outline-none cursor-pointer font-normal hover:text-black transition-colors"
               >
                 <option value="destacados">Destacados</option>
-                <option value="precio_asc">Menor Precio</option>
-                <option value="precio_desc">Mayor Precio</option>
+                <option value="precio_asc">Menor precio</option>
+                <option value="precio_desc">Mayor precio</option>
                 <option value="nombre">Nombre (A-Z)</option>
               </select>
             </div>
           </div>
         </div>
 
-        {/* PRODUCTS GRID (ESTILO CONSOLIDADO CON VARIANTES) */}
+        {/* PRODUCTS GRID (ESTILO DE ALTA DENSIDAD SHEIN: 5-6 COLUMNAS, TARJETAS PLANAS Y FOTO EDGE-TO-EDGE) */}
         {isLoadingProducts && sourceProducts.length === 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4.5 animate-pulse">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-              <div key={`skel-${n}`} className="bg-white border border-[#E5E7EB] rounded-xl p-3.5 space-y-3">
-                <div className="w-full aspect-square bg-gray-100 rounded-lg" />
-                <div className="h-4 bg-gray-100 rounded w-3/4" />
-                <div className="h-6 bg-gray-100 rounded w-1/2" />
-                <div className="h-8 bg-gray-100 rounded-lg w-full" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-6 gap-2 sm:gap-2.5 md:gap-3 animate-pulse">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => (
+              <div key={`skel-${n}`} className="bg-white rounded-none sm:rounded-sm p-0 space-y-2">
+                <div className="w-full aspect-[4/5] sm:aspect-square bg-gray-100 rounded-none sm:rounded-sm" />
+                <div className="px-1.5 pb-2 space-y-2">
+                  <div className="h-3.5 bg-gray-100 rounded-sm w-3/4" />
+                  <div className="h-4 bg-gray-100 rounded-sm w-1/2" />
+                  <div className="h-7 bg-gray-100 rounded-sm w-full" />
+                </div>
               </div>
             ))}
           </div>
@@ -2424,8 +2699,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <ShoppingBag size={28} />
             </div>
             <div className="space-y-1">
-              <h3 className="font-bold text-lg uppercase tracking-tight text-[#111111]">No se encontraron productos</h3>
-              <p className="text-xs text-[#555555]">
+              <h3 className="font-medium text-lg tracking-tight text-[#111111]">No se encontraron productos</h3>
+              <p className="text-xs text-gray-500 font-normal">
                 Intenta ajustar tu búsqueda o selecciona otra categoría en el menú superior.
               </p>
             </div>
@@ -2436,23 +2711,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 setSelectedCategory('all');
                 setSelectedSubcategory(null);
               }}
-              className="px-4 py-2 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] text-xs font-black uppercase rounded-xl transition-all cursor-pointer shadow-sm"
+              className="px-4 py-2 bg-[#000000] hover:bg-neutral-800 text-white text-xs font-medium rounded-lg transition-all cursor-pointer shadow-sm"
             >
-              Ver Todo el Catálogo
+              Ver todo el catálogo
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-6 gap-2 sm:gap-2.5 md:gap-3 lg:gap-3.5">
             {catalogItems.map((item, itemIdx) => {
               const isSelectedByUser = Boolean(selectedVariantMap[item.id]);
               const activeVariant = item.variants.find(v => v.id === selectedVariantMap[item.id]) || item.coverProduct;
               const hasVariants = Boolean(item.variants && item.variants.length > 1);
               
-              // Si el grupo tiene kit (grupo_tiene_kit) y no se ha seleccionado una variante individual, la portada principal es la foto unificada del kit (grupo_kit_imagen)
-              const defaultKitCoverUrl = (item.hasKit && item.kitImage) ? formatDirectImageUrl(item.kitImage) : null;
-              const itemImages = (!isSelectedByUser && defaultKitCoverUrl)
-                ? [defaultKitCoverUrl]
-                : getItemImages(item, activeVariant);
+              // Cada variante (incluida la portada principal por defecto) usa estricta y exclusivamente sus propias fotos
+              const itemImages = getItemImages(item, activeVariant);
 
               const currentImageIndex = cardImageIndexMap[item.id] || 0;
               const priceUSD = activeVariant.precio_venta_ref || activeVariant.precio_mayor || 0;
@@ -2465,21 +2737,21 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <div
                   key={`biker-cat-item-${item.id}-${itemIdx}`}
                   onClick={() => handleOpenCardQuickView(item)}
-                  className="bg-white hover:shadow-lg border border-[#E5E7EB] hover:border-gray-400 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 group relative overflow-hidden cursor-pointer"
+                  className="bg-white rounded-none sm:rounded-sm p-0 flex flex-col justify-between group relative cursor-pointer overflow-hidden transition-all duration-150"
                   title="Haz clic para ver detalles y agregar al carrito"
                 >
-                  {/* Indicador de Stock Crítico (Solo si casi agotado, 5 o menos unidades) */}
-                  {currentStock > 0 && currentStock <= 5 && (
-                    <div className="flex items-center justify-end mb-1 z-10">
-                      <span className="text-[7.5px] sm:text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-[#FF5200] border border-orange-200 flex items-center gap-1 shadow-xs tracking-tight">
-                        <span className="animate-pulse">⏳</span>
-                        <span>Casi agotado, quedan solo {currentStock}</span>
-                      </span>
-                    </div>
-                  )}
+                  {/* Contenedor de Imagen: Ocupa el 100% del ancho de la tarjeta sin padding lateral */}
+                  <div className="relative w-full overflow-hidden bg-[#FAFAFA] rounded-none sm:rounded-sm">
+                    {/* Indicador de Stock Crítico superpuesto en la esquina superior izquierda */}
+                    {currentStock > 0 && currentStock <= 5 && (
+                      <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
+                        <span className="text-[7.5px] sm:text-[8px] font-normal px-1.5 py-0.5 rounded-sm bg-white/95 backdrop-blur-xs text-[#FF5200] border border-orange-200/80 flex items-center gap-1 shadow-2xs tracking-tight">
+                          <span className="animate-pulse">⏳</span>
+                          <span>Casi agotado: {currentStock}</span>
+                        </span>
+                      </div>
+                    )}
 
-                  {/* Product Image: Carrusel de fotos compacto con altura máxima restringida */}
-                  <div className="mb-1.5">
                     <StoreImageCarousel
                       images={itemImages}
                       currentIndex={currentImageIndex}
@@ -2487,18 +2759,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         setCardImageIndexMap(prev => ({ ...prev, [item.id]: newIdx }));
                       }}
                       altText={item.title}
-                      className="h-32 sm:h-36 md:h-40 max-h-40 w-full"
+                      className="w-full aspect-[4/5] sm:aspect-square object-cover"
                       onOpenDetail={() => handleOpenCardQuickView(item)}
-                      showThumbnails={true}
+                      showThumbnails={false}
                     />
                   </div>
 
-                  {/* Product Info */}
-                  <div className="space-y-1 flex-1 flex flex-col justify-between">
+                  {/* Product Info: Con ligero espaciado interno para respirar debajo de la foto */}
+                  <div className="pt-2 pb-2 px-1 sm:px-1.5 space-y-1.5 flex-1 flex flex-col justify-between">
                     <div>
-                      {/* Name / Título General: Negro Amazon #111111 */}
+                      {/* Name / Título General: Negro Apple / Shein #111111 */}
                       <h4 
-                        className="font-bold text-xs sm:text-[13px] text-[#111111] line-clamp-2 min-h-[2rem] sm:min-h-[2.3rem] group-hover:text-[#FF5200] transition-colors leading-tight tracking-tight"
+                        className="font-medium text-xs sm:text-[13px] text-[#111111] line-clamp-2 min-h-[2rem] sm:min-h-[2.3rem] group-hover:text-[#FF5200] transition-colors leading-snug tracking-tight"
                         title={item.title}
                       >
                         {formatTitleCase(item.title)}
@@ -2508,44 +2780,41 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       {item.isGroup && item.variants.length > 1 && (
                         <div className="pt-1 pb-0.5 space-y-0.5">
                           <div className="flex items-center justify-between text-[7.5px]">
-                            <span className="text-[#4B5563] font-semibold uppercase flex items-center gap-1 truncate max-w-[140px]">
+                            <span className="text-gray-500 font-normal flex items-center gap-1 truncate max-w-[130px]">
                               <Boxes size={8} className="text-[#FF5200] shrink-0" />
-                              <span className="text-[#4B5563]">
-                                {(activeVariant.es_kit || (!isSelectedByUser && item.hasKit)) ? 'Kit:' : 'Modelo:'}
+                              <span>
+                                {activeVariant.es_kit ? 'Kit:' : 'Mod:'}
                               </span>
-                              <strong className="text-[#111111] truncate">
-                                {isSelectedByUser 
-                                  ? (activeVariant.variante_nombre || activeVariant.nombre) 
-                                  : (item.hasKit ? (item.kitName || 'Kit') : (activeVariant.variante_nombre || activeVariant.nombre))}
+                              <strong className="text-gray-800 font-medium truncate">
+                                {activeVariant.variante_nombre || activeVariant.nombre}
                               </strong>
                             </span>
-                            <span className="text-[7px] font-mono text-[#4B5563] shrink-0">
+                            <span className="text-[7px] font-mono text-gray-400 shrink-0">
                               {item.variants.length} opc.
                             </span>
                           </div>
 
-                          {/* Tira de Miniaturas Visuales de Modelos Diferentes (incluyendo miniatura del Kit con su respectiva foto) */}
+                          {/* Tira de Miniaturas Visuales de Modelos Diferentes */}
                           <div className="flex items-center gap-1 overflow-x-auto py-0.5 px-0.5 custom-scrollbar">
                             {item.variants.map((v) => {
-                              const isSelected = isSelectedByUser && activeVariant.id === v.id;
+                              const isSelected = activeVariant.id === v.id;
                               const vInStock = (v.stock_disponible || 0) > 0;
-                              const vImg = formatDirectImageUrl(
-                                v.es_kit 
-                                  ? (item.kitImage || v.grupo_kit_imagen || v.variante_imagen_miniatura || v.imagen_url)
-                                  : (v.variante_imagen_miniatura || v.imagen_portada || v.variante_imagen_hd || v.imagen_url || v.link)
-                              );
+                              const rawThumb = v.es_kit 
+                                ? (v.grupo_kit_imagen || item.kitImage || v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url)
+                                : (v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url);
+                              const vImg = rawThumb ? formatDirectImageUrl(rawThumb) : '';
                               return (
                                 <button
-                                  key={`v-visual-thumb-${item.id}-${v.id}`}
+                                  key={v.id}
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedVariantMap(prev => ({ ...prev, [item.id]: v.id }));
                                     setCardImageIndexMap(prev => ({ ...prev, [item.id]: 0 }));
                                   }}
-                                  className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
+                                  className={`w-6 h-6 sm:w-7 sm:h-7 rounded-sm overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
                                     isSelected
-                                      ? 'border-[#FF5200] ring-2 ring-[#FF5200]/50 scale-105 shadow-xs z-10'
+                                      ? 'border-[#FF5200] ring-1 ring-[#FF5200]/40 scale-105 shadow-2xs z-10'
                                       : 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
                                   }`}
                                   title={`${v.variante_nombre || (v.es_kit ? (item.kitName || 'Kit') : v.nombre)} - $${(v.precio_venta_ref || v.precio_mayor || 0).toFixed(2)} USD`}
@@ -2560,12 +2829,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                       }}
                                     />
                                   ) : (
-                                    <span className="text-[7px] font-black text-gray-500 uppercase text-center p-0.5 truncate leading-none">
-                                      {v.es_kit ? (v.variante_nombre || item.kitName || 'KIT').slice(0, 4).toUpperCase() : (v.variante_nombre || v.nombre).slice(0, 3)}
+                                    <span className="text-[7px] font-medium text-gray-500 text-center p-0.5 truncate leading-none">
+                                      {v.es_kit ? (v.variante_nombre || item.kitName || 'Kit').slice(0, 4) : (v.variante_nombre || v.nombre).slice(0, 3)}
                                     </span>
                                   )}
                                   {!vInStock && (
-                                    <span className="absolute inset-0 bg-white/70 flex items-center justify-center text-rose-600 text-[7px] font-black">
+                                    <span className="absolute inset-0 bg-white/70 flex items-center justify-center text-rose-600 text-[7px] font-bold">
                                       ✕
                                     </span>
                                   )}
@@ -2577,47 +2846,78 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       )}
                     </div>
 
-                    {/* Price section: Naranja de Alta Conversión #FF5200 y Secundario en Gris Oxford Neutro #4B5563 */}
-                    <div className="pt-1.5 border-t border-gray-100 space-y-0.5 font-mono">
+                    {/* Price section: Naranja Refinado #FF5200 en semibold y Bolívares en gris medio normal */}
+                    <div className="pt-1 border-t border-gray-100 space-y-0.5 font-mono">
                       <div className="flex items-baseline gap-1 flex-wrap">
                         {item.hasKit && !isSelectedByUser ? (
                           <>
-                            <span className="text-[8px] font-bold text-[#4B5563] uppercase">Desde</span>
-                            <span className="text-base sm:text-lg font-black text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} </span>
-                            <span className="text-[10px] font-bold text-[#FF5200]">USD</span>
+                            <span className="text-[9px] font-normal text-gray-500">Desde</span>
+                            <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} </span>
+                            <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
                           </>
                         ) : item.isGroup && item.priceMin !== item.priceMax && !isSelectedByUser ? (
                           <>
-                            <span className="text-[8px] font-bold text-[#4B5563] uppercase">Desde</span>
-                            <span className="text-base sm:text-lg font-black text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} - ${item.priceMax.toFixed(2)} </span>
-                            <span className="text-[10px] font-bold text-[#FF5200]">USD</span>
+                            <span className="text-[9px] font-normal text-gray-500">Desde</span>
+                            <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} - ${item.priceMax.toFixed(2)} </span>
+                            <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
                           </>
                         ) : (
                           <>
-                            <span className="text-base sm:text-lg font-black text-[#FF5200] tracking-tight"> ${priceUSD.toFixed(2)} </span>
-                            <span className="text-[10px] font-bold text-[#FF5200]">USD</span>
+                            <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${priceUSD.toFixed(2)} </span>
+                            <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
                           </>
                         )}
                       </div>
-                      <div className="text-[10px] sm:text-[10.5px] font-medium text-[#4B5563] leading-tight">
+                      <div className="text-[9.5px] sm:text-[10px] font-normal text-gray-500 leading-tight">
                         ≈ Bs. {formatVES((item.hasKit && !isSelectedByUser ? item.priceMin : priceUSD) * tasaBCV)}
                       </div>
                     </div>
 
-                    {/* Botón CTA Único (Lógica Amazon: "Ver opciones" vs "Agregar al carrito") */}
-                    <div className="pt-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenCardQuickView(item);
-                        }}
-                        className="w-full py-2 px-3 rounded-xl bg-[#000000] hover:bg-neutral-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-98 transition-all"
-                        title={hasVariants ? "Ver opciones disponibles" : "Agregar este producto al carrito"}
-                      >
-                        <ShoppingCart size={13} className="text-white stroke-[2.2] shrink-0" />
-                        <span>{hasVariants ? 'Ver opciones' : 'Agregar al carrito'}</span>
-                      </button>
+                    {/* Botón CTA Único (Fondo negro, font-medium, esquinas mínimas rounded-sm) */}
+                    <div className="pt-1.5">
+                      {hasVariants ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenCardQuickView(item);
+                          }}
+                          className="w-full py-1.5 sm:py-2 px-2.5 rounded-sm bg-[#000000] hover:bg-neutral-800 text-white font-medium text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition-all"
+                          title="Ver opciones disponibles"
+                        >
+                          <ShoppingCart size={12} className="text-white stroke-[2.2] shrink-0" />
+                          <span>Ver opciones</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isVariantInStock) {
+                              handleAddToCart(activeVariant, 1, e.currentTarget as HTMLElement);
+                            }
+                          }}
+                          disabled={!isVariantInStock}
+                          className={`w-full py-1.5 sm:py-2 px-2.5 rounded-sm font-medium text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                            isJustAdded
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30'
+                              : 'bg-[#000000] hover:bg-neutral-800 text-white'
+                          }`}
+                          title={isVariantInStock ? "Agregar este producto al carrito" : "Producto agotado"}
+                        >
+                          {isJustAdded ? (
+                            <>
+                              <Check size={12} className="stroke-[3] text-white shrink-0" />
+                              <span>¡Agregado!</span>
+                            </>
+                          ) : (
+                            <>
+                              <ShoppingCart size={12} className="text-white stroke-[2.2] shrink-0" />
+                              <span>{isVariantInStock ? 'Agregar al carrito' : 'Agotado'}</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2628,6 +2928,241 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       </main>
 
       {/* ========================================================= */}
+      {/* MENÚ HAMBURGUESA MÓVIL DESLIZABLE (DRAWER TIPO SHEIN)     */}
+      {/* ========================================================= */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-[99999] md:hidden">
+          {/* Backdrop oscuro */}
+          <div
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="fixed inset-0 bg-black/60 transition-opacity duration-300"
+          />
+          
+          {/* Panel lateral */}
+          <div className="fixed inset-y-0 left-0 w-[82vw] max-w-sm bg-white shadow-2xl flex flex-col justify-between overflow-hidden animate-slide-right text-[#111111]">
+            {/* Cabecera del Drawer */}
+            <div className="bg-[#000000] text-white p-4 flex items-center justify-between border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <img src="/logo png.png" alt="Lo que los bikers quieren" className="h-8 w-auto object-contain" />
+                <span className="font-medium text-xs text-white">Menú</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
+                aria-label="Cerrar menú"
+              >
+                <X size={18} strokeWidth={2.5} />
+              </button>
+            </div>
+
+            {/* Contenido scrolleable */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+              {/* Tasa BCV */}
+              <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-center justify-between text-xs font-medium text-[#111111]">
+                <span className="flex items-center gap-1.5 text-gray-700">
+                  💵 Tasa Oficial BCV:
+                </span>
+                <span className="text-[#000000] font-semibold">
+                  Bs. {formatVES(tasaBCV)}
+                </span>
+              </div>
+
+              {/* Categorías y Subcategorías */}
+              <div>
+                <h4 className="text-[11px] font-medium text-gray-400 mb-2 px-1">
+                  Categorías
+                </h4>
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory('all');
+                      setSelectedSubcategory(null);
+                      setSearchQuery('');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between cursor-pointer ${
+                      selectedCategory === 'all' && !selectedSubcategory
+                        ? 'bg-black text-white font-black'
+                        : 'text-gray-800 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span>🔥 Todos los productos</span>
+                    <span className="text-xs">→</span>
+                  </button>
+
+                  {categories.map((cat) => {
+                    const isCatSelected = getCategoryKey(selectedCategory) === getCategoryKey(cat);
+                    const rawSubs = subcategoriesByCategory[cat] || [];
+                    const subs = rawSubs.filter(
+                      (s) =>
+                        getCategoryKey(s.name) !== getCategoryKey(cat) &&
+                        normalizeSearch(s.name) !== normalizeSearch(cat) &&
+                        s.name.toLowerCase().trim() !== cat.toLowerCase().trim()
+                    );
+                    const hasSubs = subs.length > 0;
+                    const isExpanded = mobileExpandedCategory === cat;
+
+                    return (
+                      <div key={`drawer-cat-${cat}`} className="rounded-xl overflow-hidden">
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCategory(cat);
+                              setSelectedSubcategory(null);
+                              setSearchQuery('');
+                              setIsMobileMenuOpen(false);
+                            }}
+                            className={`flex-1 text-left px-3 py-2.5 rounded-l-xl text-xs font-bold transition-all cursor-pointer ${
+                              isCatSelected && !selectedSubcategory
+                                ? 'bg-black text-white font-black'
+                                : 'text-gray-800 hover:bg-gray-100'
+                            }`}
+                          >
+                            {formatCategorySentenceCase(cat)}
+                          </button>
+                          {hasSubs && (
+                            <button
+                              type="button"
+                              onClick={() => setMobileExpandedCategory(isExpanded ? null : cat)}
+                              className={`p-2.5 rounded-r-xl transition-colors cursor-pointer ${
+                                isCatSelected && !selectedSubcategory
+                                  ? 'bg-black text-white'
+                                  : 'text-gray-500 hover:bg-gray-100'
+                              }`}
+                              aria-label={`Ver subcategorías de ${cat}`}
+                            >
+                              <ChevronDown size={14} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Subcategorías anidadas */}
+                        {hasSubs && isExpanded && (
+                          <div className="pl-4 pr-1 py-1 space-y-1 bg-gray-50 rounded-b-xl border-l-2 border-black ml-3 my-1">
+                            {/* Opción limpia "Ver todo" */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCategory(cat);
+                                setSelectedSubcategory(null);
+                                setSearchQuery('');
+                                setIsMobileMenuOpen(false);
+                              }}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
+                                isCatSelected && !selectedSubcategory
+                                  ? 'bg-black text-white font-bold'
+                                  : 'text-gray-600 hover:text-black hover:bg-gray-200/60'
+                              }`}
+                            >
+                              <span>Ver todo</span>
+                              <ArrowRight size={13} className={isCatSelected && !selectedSubcategory ? 'text-white' : 'text-gray-400'} />
+                            </button>
+
+                            {subs.map((subItem) => {
+                              const isSubSelected = isCatSelected && (
+                                selectedSubcategory?.toLowerCase() === subItem.name.toLowerCase() ||
+                                getSubcategoryKey(selectedSubcategory || '') === getSubcategoryKey(subItem.name)
+                              );
+                              return (
+                                <button
+                                  key={`drawer-sub-${cat}-${subItem.name}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCategory(cat);
+                                    setSelectedSubcategory(subItem.name);
+                                    setSearchQuery('');
+                                    setIsMobileMenuOpen(false);
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                                    isSubSelected
+                                      ? 'bg-black text-white font-bold'
+                                      : 'text-gray-600 hover:text-black hover:bg-gray-200/60'
+                                  }`}
+                                >
+                                  <span>{formatCategorySentenceCase(subItem.name)}</span>
+                                  <span className="text-[10px] text-gray-400 font-mono">({subItem.count})</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Acciones de Contacto y Tienda */}
+              <div className="pt-2 border-t border-gray-100 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleCopyStoreLink();
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full py-2.5 px-3 rounded-xl border border-gray-200 text-xs font-bold flex items-center justify-center gap-2 hover:bg-gray-50 cursor-pointer text-gray-700"
+                >
+                  <Share2 size={14} />
+                  <span>Compartir Tienda</span>
+                </button>
+
+                {effectiveAdmin && (
+                  <div className="pt-2 border-t border-gray-100 space-y-1.5">
+                    <span className="text-[10px] font-medium text-amber-600 px-1">Opciones de administrador</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVariantsModalInitialGroupId(null);
+                        setIsVariantsModalOpen(true);
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium bg-amber-50 text-amber-900 border border-amber-200 flex items-center gap-2 cursor-pointer"
+                    >
+                      <Boxes size={13} className="text-amber-600" />
+                      <span>Variantes y Grupos</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTextEditorInitialKey(null);
+                        setIsTextEditorOpen(true);
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium bg-amber-50 text-amber-900 border border-amber-200 flex items-center gap-2 cursor-pointer"
+                    >
+                      <Edit3 size={13} className="text-amber-600" />
+                      <span>Editar Textos</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCategoryModalOpen(true);
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium bg-amber-50 text-amber-900 border border-amber-200 flex items-center gap-2 cursor-pointer"
+                    >
+                      <Sliders size={13} className="text-amber-600" />
+                      <span>Categorías Visibles</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer del Drawer */}
+            <div className="p-3 bg-gray-50 border-t border-gray-100 text-center">
+              <p className="text-[10px] text-gray-400 font-normal">
+                Lo que los bikers quieren © {new Date().getFullYear()}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
       {/* CART DRAWER / SLIDE-OVER                                  */}
       {/* ========================================================= */}
       {isCartOpen && (
@@ -2635,16 +3170,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsCartOpen(false);
           }}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] cursor-pointer"
+          className="fixed inset-0 z-[99999] bg-black/60 flex justify-end animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-white border-l border-gray-200 h-full flex flex-col shadow-2xl animate-slide-left text-[#111111] cursor-default"
           >
             {/* Header Drawer */}
-            <div className="p-4 pt-[max(1rem,env(safe-area-inset-top))] border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+            <div className="p-4 pt-[max(1rem,env(safe-area-inset-top))] border-b border-gray-200 bg-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-[#FFC107] text-[#111111] flex items-center justify-center font-black shadow-xs">
+                <div className="w-8 h-8 rounded-xl bg-[#000000] text-white flex items-center justify-center font-black shadow-xs">
                   <ShoppingCart size={16} />
                 </div>
                 <div>
@@ -2654,9 +3189,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     isAdmin={isAdmin}
                     onOpenEditor={handleOpenTextEditorFor}
                     as="h3"
-                    className="font-extrabold text-base uppercase tracking-tight text-[#111111] leading-none"
+                    className="font-medium text-base tracking-tight text-[#111111] leading-none"
                   />
-                  <p className="text-[9.5px] text-[#555555] font-bold uppercase mt-0.5">
+                  <p className="text-[10px] text-gray-500 font-normal mt-0.5">
                     {cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto seleccionado' : 'productos seleccionados'}
                   </p>
                 </div>
@@ -2665,7 +3200,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCartOpen(false)}
-                className="w-9 h-9 rounded-xl bg-gray-200 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
+                className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-[#000000] hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
                 title="Cerrar carrito"
                 aria-label="Cerrar carrito"
               >
@@ -2680,28 +3215,35 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   <div className="w-16 h-16 rounded-2xl bg-gray-100 text-gray-400 flex items-center justify-center mx-auto">
                     <ShoppingBag size={28} />
                   </div>
-                  <p className="font-extrabold text-base uppercase tracking-tight text-[#111111]">Tu carrito está vacío</p>
-                  <p className="text-xs text-[#555555] max-w-xs mx-auto">
+                  <p className="font-medium text-base tracking-tight text-[#111111]">Tu carrito está vacío</p>
+                  <p className="text-xs text-gray-500 font-normal max-w-xs mx-auto">
                     Explora nuestro catálogo de accesorios para motos para agregar productos a tu compra.
                   </p>
                   <button
                     type="button"
                     onClick={() => setIsCartOpen(false)}
-                    className="px-4 py-2 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] text-xs font-black uppercase rounded-xl cursor-pointer shadow-xs transition-colors"
+                    className="px-4 py-2 bg-[#000000] hover:bg-neutral-800 text-white text-xs font-medium rounded-lg cursor-pointer shadow-xs transition-colors"
                   >
-                    Ir al Catálogo
+                    Ir al catálogo
                   </button>
                 </div>
               ) : (
                 cart.map((item, cartIdx) => {
-                  const img = formatDirectImageUrl(item.product.imagen_url || item.product.link);
+                  const isZero = item.quantity === 0;
+                  const img = formatDirectImageUrl(item.product.variante_imagen_miniatura || item.product.imagen_portada || item.product.imagen_url || item.product.link);
                   return (
                     <div
                       key={`cart-item-${item.product.id || 'p'}-${item.product.sku || ''}-${cartIdx}`}
-                      className="bg-gray-50 border border-gray-200 rounded-2xl p-3 flex items-center gap-3 relative group"
+                      className={`border rounded-2xl p-3 flex items-center gap-3 relative transition-all duration-200 group ${
+                        isZero
+                          ? 'bg-gray-100/90 border-dashed border-gray-300 opacity-60 grayscale'
+                          : 'bg-gray-50 border-gray-200'
+                      }`}
                     >
                       {/* Thumbnail */}
-                      <div className="w-14 h-14 rounded-xl bg-white border border-gray-200 overflow-hidden flex items-center justify-center shrink-0">
+                      <div className={`w-14 h-14 rounded-xl bg-white border overflow-hidden flex items-center justify-center shrink-0 ${
+                        isZero ? 'border-gray-300 opacity-60' : 'border-gray-200'
+                      }`}>
                         {img ? (
                           <img src={img} alt={item.product.nombre} className="w-full h-full object-cover" />
                         ) : (
@@ -2711,38 +3253,69 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                       {/* Info & Quantity */}
                       <div className="flex-1 min-w-0">
-                        <h5 className="font-bold text-xs text-[#111111] truncate">
-                          {item.product.nombre}
-                        </h5>
-                        <p className="text-[10.5px] font-mono text-[#FF5200] font-bold mt-0.5">
-                          ${item.precio_unitario.toFixed(2)} USD <span className="text-[#4B5563] font-normal">c/u</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <h5 className={`font-medium text-xs truncate ${isZero ? 'text-gray-500 line-through' : 'text-[#111111]'}`}>
+                            {item.product.nombre}
+                          </h5>
+                          {isZero && (
+                            <span className="text-[8px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 shrink-0">
+                              En pausa (0)
+                            </span>
+                          )}
+                        </div>
+
+                        <p className={`text-[10.5px] font-mono font-medium mt-0.5 ${isZero ? 'text-gray-400' : 'text-[#FF5200]'}`}>
+                          ${item.precio_unitario.toFixed(2)} USD <span className="text-gray-500 font-normal">c/u</span>
                         </p>
 
-                        {/* Stepper */}
+                        {/* Stepper y opción de recuperación */}
                         <div className="flex items-center justify-between mt-2">
-                          <div className="inline-flex items-center bg-white border border-gray-300 rounded-lg p-0.5">
+                          <div className="inline-flex items-center bg-white border border-gray-300 rounded-lg p-0.5 shadow-2xs">
                             <button
                               type="button"
                               onClick={() => handleUpdateCartQty(item.product.id, item.quantity - 1)}
-                              className="w-5 h-5 rounded flex items-center justify-center text-gray-600 hover:text-black hover:bg-gray-100 font-black cursor-pointer text-xs"
+                              disabled={isZero}
+                              className="w-5 h-5 rounded flex items-center justify-center text-gray-600 hover:text-black hover:bg-gray-100 disabled:opacity-20 disabled:cursor-not-allowed font-medium cursor-pointer text-xs transition-colors"
+                              title="Disminuir cantidad"
+                              aria-label="Disminuir cantidad"
                             >
                               -
                             </button>
-                            <span className="w-7 text-center font-mono font-bold text-xs text-[#111111]">
+                            <span className={`w-7 text-center font-mono font-medium text-xs ${
+                              isZero ? 'text-amber-800 bg-amber-50 rounded' : 'text-[#111111]'
+                            }`}>
                               {item.quantity}
                             </span>
                             <button
                               type="button"
                               onClick={() => handleUpdateCartQty(item.product.id, item.quantity + 1)}
-                              className="w-5 h-5 rounded flex items-center justify-center text-gray-600 hover:text-black hover:bg-gray-100 font-black cursor-pointer text-xs"
+                              className={`w-5 h-5 rounded flex items-center justify-center font-medium cursor-pointer text-xs transition-colors ${
+                                isZero 
+                                  ? 'bg-[#000000] text-white hover:bg-neutral-800 shadow-xs' 
+                                  : 'text-gray-600 hover:text-black hover:bg-gray-100'
+                              }`}
+                              title={isZero ? "Restaurar a 1 unidad" : "Aumentar cantidad"}
+                              aria-label="Aumentar cantidad"
                             >
                               +
                             </button>
                           </div>
 
-                          <span className="font-mono font-black text-xs text-[#FF5200]">
-                            ${item.subtotal.toFixed(2)}
-                          </span>
+                          <div className="text-right">
+                            {isZero ? (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateCartQty(item.product.id, 1)}
+                                className="text-[10px] text-blue-600 hover:text-blue-800 font-medium underline cursor-pointer"
+                              >
+                                ↩ Restaurar a 1
+                              </button>
+                            ) : (
+                              <span className="font-mono font-semibold text-xs text-[#FF5200]">
+                                ${item.subtotal.toFixed(2)}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -2750,8 +3323,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       <button
                         type="button"
                         onClick={() => handleRemoveFromCart(item.product.id)}
-                        className="text-gray-400 hover:text-rose-600 p-1.5 transition-colors cursor-pointer"
-                        title="Eliminar del carrito"
+                        className="text-gray-400 hover:text-rose-600 p-1.5 transition-colors cursor-pointer shrink-0"
+                        title="Eliminar definitivamente del carrito"
+                        aria-label="Eliminar del carrito"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -2765,39 +3339,38 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             {cart.length > 0 && (
               <div className="p-4 border-t border-gray-200 bg-gray-50 space-y-3 font-mono">
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs text-[#4B5563]">
+                  <div className="flex items-center justify-between text-xs text-gray-600">
                     <span>Subtotal USD:</span>
-                    <span className="font-bold text-[#111111]">${cartTotals.totalUSD.toFixed(2)}</span>
+                    <span className="font-medium text-[#111111]">${cartTotals.totalUSD.toFixed(2)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-[#4B5563]">
+                  <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>Equivalente en Bolívares:</span>
-                    <span className="font-bold text-[#4B5563]">Bs. {formatVES(cartTotals.totalBS)}</span>
+                    <span className="font-normal text-gray-500">Bs. {formatVES(cartTotals.totalBS)}</span>
                   </div>
                   <div className="flex items-baseline justify-between pt-2 border-t border-gray-200">
-                    <span className="font-bold text-sm uppercase text-[#111111]">Total a Pagar:</span>
-                    <span className="font-extrabold text-2xl tracking-tight text-[#FF5200]">${cartTotals.totalUSD.toFixed(2)} USD</span>
+                    <span className="font-medium text-sm text-[#111111]">Total a pagar:</span>
+                    <span className="font-semibold text-2xl tracking-tight text-[#FF5200]">${cartTotals.totalUSD.toFixed(2)} USD</span>
                   </div>
                 </div>
 
                 <div className="space-y-2 pt-1 font-sans">
+                  {/* Botón Principal (Fondo negro sólido, texto blanco, font-medium, rounded-lg) */}
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsCartOpen(false);
-                      setIsCheckoutOpen(true);
-                    }}
-                    className="w-full py-3 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] font-black uppercase text-xs rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
+                    onClick={handleProceedToCheckout}
+                    disabled={cartTotals.totalUnits === 0}
+                    className="w-full py-3.5 bg-[#000000] hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
                   >
-                    <span>Finalizar Compra y Datos de Envío</span>
-                    <ArrowRight size={14} />
+                    <span>Finalizar compra</span>
+                    <ArrowRight size={15} className="text-white" />
                   </button>
 
                   <button
                     type="button"
-                    onClick={handleClearCart}
-                    className="w-full py-1 text-center text-[10px] text-gray-500 hover:text-rose-600 uppercase font-bold cursor-pointer transition-colors"
+                    onClick={() => setIsCartOpen(false)}
+                    className="w-full py-1 text-center text-xs text-gray-500 hover:text-[#111111] font-normal cursor-pointer transition-colors"
                   >
-                    {confirmClearCart ? '⚠️ ¿Confirmar vaciar todo el carrito?' : 'Vaciar Carrito'}
+                    Seguir comprando
                   </button>
                 </div>
               </div>
@@ -2814,17 +3387,17 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsCheckoutOpen(false);
           }}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto cursor-pointer"
+          className="fixed inset-0 z-[99999] bg-black/60 flex items-center justify-center p-0 sm:p-5 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] overflow-y-auto cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="bg-white border border-gray-200 rounded-3xl w-full max-w-2xl max-h-[calc(100dvh-2.5rem)] flex flex-col overflow-hidden shadow-2xl animate-scale-up my-auto text-[#111111] cursor-default"
+            className="bg-white sm:border sm:border-gray-200 rounded-none sm:rounded-3xl w-full h-full sm:h-auto max-w-2xl sm:max-h-[calc(100dvh-2.5rem)] flex flex-col overflow-y-auto sm:overflow-hidden shadow-2xl animate-scale-up my-auto text-[#111111] cursor-default"
           >
             {/* Modal Header: Título y Ruta de Pasos */}
             <div className="p-3.5 sm:p-4 border-b border-gray-200 bg-gray-50 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-2xl bg-[#FFC107] text-[#111111] flex items-center justify-center font-black shrink-0 shadow-xs">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-2xl bg-[#000000] text-white flex items-center justify-center font-black shrink-0 shadow-xs">
                     <Truck size={17} />
                   </div>
                   <div>
@@ -2834,7 +3407,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       isAdmin={isAdmin}
                       onOpenEditor={handleOpenTextEditorFor}
                       as="h3"
-                      className="font-extrabold text-base sm:text-lg uppercase tracking-tight text-[#111111] leading-none"
+                      className="font-medium text-base sm:text-lg text-[#111111] leading-none"
                     />
                     <EditableStoreText
                       textKey="checkoutModalSubtitle"
@@ -2842,7 +3415,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       isAdmin={isAdmin}
                       onOpenEditor={handleOpenTextEditorFor}
                       as="p"
-                      className="text-[9.5px] sm:text-[10.5px] text-[#555555] font-bold uppercase mt-0.5"
+                      className="text-xs text-gray-500 font-normal mt-0.5"
                     />
                   </div>
                 </div>
@@ -2850,16 +3423,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsCheckoutOpen(false)}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gray-200 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
                   title="Cerrar ventana"
                   aria-label="Cerrar ventana"
                 >
-                  <X size={17} strokeWidth={2.5} />
+                  <X size={17} strokeWidth={2} />
                 </button>
               </div>
 
-              {/* Barra de Ruta (Pasos 1 y 2) */}
-              <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-2 px-3 text-xs font-bold shadow-xs">
+              {/* Barra de Ruta (Pasos 1 y 2 - Estilo Neutro Minimalista) */}
+              <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-2 px-3 text-xs font-medium shadow-xs">
                 <button
                   type="button"
                   onClick={() => {
@@ -2867,30 +3440,30 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     setCheckoutStep(1);
                   }}
                   className={`flex items-center gap-1.5 cursor-pointer transition-colors ${
-                    checkoutStep === 1 ? 'text-[#111111] font-black' : 'text-emerald-600 hover:text-emerald-700'
+                    checkoutStep === 1 ? 'text-[#111111] font-semibold' : 'text-gray-600 hover:text-black font-normal'
                   }`}
                 >
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black ${
-                    checkoutStep === 1 ? 'bg-[#FFC107] text-[#111111]' : 'bg-emerald-500 text-white'
+                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-medium ${
+                    checkoutStep === 1 ? 'bg-[#000000] text-white' : 'bg-[#000000] text-white'
                   }`}>
                     {checkoutStep === 2 ? '✓' : '1'}
                   </span>
-                  <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-extrabold">1. Llenar datos para el envío</span>
+                  <span className="text-xs font-medium">1. Llenar datos para el envío</span>
                 </button>
 
                 <div className="flex-1 mx-2 sm:mx-3 h-0.5 bg-gray-200 relative">
-                  <div className={`h-full bg-[#FFC107] transition-all duration-300 ${checkoutStep === 2 ? 'w-full' : 'w-0'}`} />
+                  <div className={`h-full bg-[#000000] transition-all duration-300 ${checkoutStep === 2 ? 'w-full' : 'w-0'}`} />
                 </div>
 
                 <div className={`flex items-center gap-1.5 ${
-                  checkoutStep === 2 ? 'text-[#111111] font-black' : 'text-gray-400'
+                  checkoutStep === 2 ? 'text-[#111111] font-semibold' : 'text-gray-400'
                 }`}>
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black ${
-                    checkoutStep === 2 ? 'bg-[#FFC107] text-[#111111]' : 'bg-gray-200 text-gray-600'
+                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-medium ${
+                    checkoutStep === 2 ? 'bg-[#000000] text-white' : 'bg-gray-200 text-gray-600'
                   }`}>
                     2
                   </span>
-                  <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-extrabold">2. Pago y Confirmación</span>
+                  <span className="text-xs font-medium">2. Pago y confirmación</span>
                 </div>
               </div>
             </div>
@@ -2899,7 +3472,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <form onSubmit={handleSubmitOrder} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar">
               {/* Form Error Banner */}
               {orderFormError && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs font-bold flex items-center gap-2.5 animate-shake">
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs font-normal flex items-center gap-2.5 animate-shake">
                   <AlertCircle size={16} className="text-rose-600 shrink-0" />
                   <span>{orderFormError}</span>
                 </div>
@@ -2912,16 +3485,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <div className="space-y-4 animate-fade-in">
                   <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
                     <User size={15} className="text-[#FF5722]" />
-                    <h4 className="text-xs font-black uppercase tracking-wider text-[#111111]">
-                      Información Personal & Encomienda
+                    <h4 className="text-sm font-medium text-[#111111]">
+                      Información personal y encomienda
                     </h4>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                     {/* 1. NOMBRE */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
-                        <span>1. Nombre Completo *</span>
+                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
+                        <span>1. Nombre completo *</span>
                       </label>
                       <input
                         type="text"
@@ -2929,14 +3502,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         value={clienteNombre}
                         onChange={(e) => setClienteNombre(e.target.value)}
                         placeholder="Ej: Carlos Rodriguez"
-                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-semibold outline-none transition-all placeholder:text-gray-400"
+                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400"
                       />
                     </div>
 
                     {/* 2. NÚMERO DE CÉDULA */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
-                        <span>2. Número de Cédula (V / E) *</span>
+                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
+                        <span>2. Número de cédula (V / E) *</span>
                       </label>
                       <input
                         type="text"
@@ -2944,13 +3517,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         value={clienteCedula}
                         onChange={(e) => setClienteCedula(e.target.value)}
                         placeholder="Ej: V-19.456.789"
-                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-semibold outline-none transition-all placeholder:text-gray-400 font-mono"
+                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono"
                       />
                     </div>
 
                     {/* 3. TELÉFONO */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1.5">
+                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1.5">
                         <img src="/whatsapp.png" alt="WhatsApp" className="w-3.5 h-3.5 object-contain shrink-0" />
                         <span>3. Teléfono / WhatsApp *</span>
                       </label>
@@ -2960,33 +3533,33 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         value={clienteTelefono}
                         onChange={(e) => setClienteTelefono(e.target.value)}
                         placeholder="Ej: 0412-1234567"
-                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-semibold outline-none transition-all placeholder:text-gray-400 font-mono"
+                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono"
                       />
                     </div>
 
                     {/* AGENCIA DE ENVÍO SELECTOR */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-[#555555] flex items-center gap-1">
-                        <span>Empresa de Encomiendas</span>
+                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
+                        <span>Empresa de encomiendas</span>
                       </label>
                       <select
                         value={agenciaSeleccionada}
                         onChange={(e) => setAgenciaSeleccionada(e.target.value as any)}
-                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-semibold outline-none cursor-pointer"
+                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none cursor-pointer"
                       >
                         <option value="MRW">MRW</option>
                         <option value="Zoom">Zoom</option>
                         <option value="Tealca">Tealca</option>
                         <option value="Domesa">Domesa</option>
-                        <option value="Otra">Otra Agencia / Entrega Local</option>
+                        <option value="Otra">Otra agencia / entrega local</option>
                       </select>
                     </div>
 
                     {/* 4. DIRECCIÓN DE LA AGENCIA DE ENVÍO */}
                     <div className="space-y-1 sm:col-span-2">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
+                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
                         <MapPin size={11} className="text-[#FF5722]" />
-                        <span>4. Dirección de la Agencia de Envío *</span>
+                        <span>4. Dirección de la agencia de envío *</span>
                       </label>
                       <textarea
                         required
@@ -2994,20 +3567,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         value={direccionAgencia}
                         onChange={(e) => setDireccionAgencia(e.target.value)}
                         placeholder="Ej: Agencia MRW San Cristóbal Centro, Calle 5 con Carrera 8, Estado Táchira (Código: 1234)"
-                        className="w-full bg-white border border-gray-300 focus:border-[#FFC107] focus:ring-1 focus:ring-[#FFC107] p-2.5 rounded-xl text-[#111111] text-xs font-medium outline-none transition-all placeholder:text-gray-400"
+                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400"
                       />
                     </div>
                   </div>
 
                   {/* Resumen sutil al final del formulario */}
                   <div className="pt-2 border-t border-gray-100 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-[#555555] font-medium px-1">
+                    <div className="flex items-center justify-between text-[11px] text-gray-500 font-normal px-1">
                       <span className="flex items-center gap-1.5">
                         <ShoppingBag size={13} className="text-amber-500" />
                         <span>{cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto en orden' : 'productos en orden'}</span>
                       </span>
                       <span className="font-mono text-right">
-                        Total: <strong className="text-[#FF5200] font-black">${cartTotals.totalUSD.toFixed(2)} USD</strong> <span className="text-[#4B5563] font-medium text-[10px]">(≈ Bs. {formatVES(cartTotals.totalBS)})</span>
+                        Total: <strong className="text-[#FF5200] font-semibold">${cartTotals.totalUSD.toFixed(2)} USD</strong> <span className="text-gray-500 font-normal text-[10px]">(≈ Bs. {formatVES(cartTotals.totalBS)})</span>
                       </span>
                     </div>
 
@@ -3033,10 +3606,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         }
                         setCheckoutStep(2);
                       }}
-                      className="w-full py-3 bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] font-bold tracking-normal text-sm uppercase rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
+                      className="w-full py-3.5 bg-[#000000] hover:bg-neutral-800 text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
                     >
-                      <span>Siguiente: Método de Pago</span>
-                      <ArrowRight size={16} />
+                      <span>Siguiente: Método de pago</span>
+                      <ArrowRight size={16} className="text-white" />
                     </button>
                   </div>
                 </div>
@@ -3052,18 +3625,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     {/* Botones de Métodos de Pago */}
                     <div>
                       <div className="flex items-center justify-between pb-1 flex-wrap gap-1">
-                        <label className="text-[10px] font-black uppercase tracking-wider text-[#111111] flex items-center gap-1">
-                          <CreditCard size={12} className="text-[#FF5722]" />
-                          <span>Métodos de Pago</span>
+                        <label className="text-xs font-normal text-gray-700 flex items-center gap-1.5">
+                          <CreditCard size={13} className="text-[#FF5200]" />
+                          <span>Métodos de pago</span>
                         </label>
                         {isAdmin && (
                           <button
                             type="button"
                             onClick={() => setIsPaymentMethodsModalOpen(true)}
-                            className="text-[9.5px] bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-lg flex items-center gap-1 font-bold cursor-pointer transition-colors"
+                            className="text-[9.5px] bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-lg flex items-center gap-1 font-medium cursor-pointer transition-colors"
                           >
                             <Edit3 size={10} />
-                            <span>Editar Cuentas</span>
+                            <span>Editar cuentas</span>
                           </button>
                         )}
                       </div>
@@ -3075,10 +3648,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               key={method.id}
                               type="button"
                               onClick={() => setMetodoPago(method.nombre)}
-                              className={`py-1.5 px-2 rounded-xl border text-center text-xs font-bold transition-all cursor-pointer ${
+                              className={`py-2 px-2.5 rounded-lg border text-center text-xs transition-all cursor-pointer ${
                                 isSel
-                                  ? 'bg-[#FFC107] text-[#111111] border-[#FFC107] font-black shadow-xs'
-                                  : 'bg-white border-gray-200 text-[#555555] hover:bg-gray-100'
+                                  ? 'bg-[#111111] text-white border-[#111111] font-medium shadow-xs'
+                                  : 'bg-white border-gray-200 text-gray-600 font-normal hover:bg-gray-100 hover:text-[#111111]'
                               }`}
                             >
                               {method.nombre}
@@ -3090,31 +3663,31 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                     {/* Datos Bancarios Copiables y Monto Unificado */}
                     <div className="space-y-2">
-                      <div className="text-xs font-black uppercase tracking-wider px-0.5 text-[#111111] flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#FFC107]"></span>
+                      <div className="text-xs font-medium px-0.5 text-gray-800 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-gray-600"></span>
                         <span>Datos para transferir ({selectedPaymentMethod?.nombre || metodoPago}):</span>
                       </div>
 
                       {/* Monto exacto a pagar (USD y Bs BCV) */}
                       <div className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs shadow-xs">
                         <div>
-                          <span className="text-[9.5px] uppercase font-bold text-[#4B5563] block tracking-wider">Monto Exacto a Pagar:</span>
-                          <div className="font-mono text-base sm:text-lg font-black text-[#FF5200] leading-tight mt-0.5">
-                            ${cartTotals.totalUSD.toFixed(2)} <span className="text-xs font-bold text-[#FF5200]">USD</span>
+                          <span className="text-xs text-gray-500 font-normal block">Monto exacto a pagar:</span>
+                          <div className="font-mono text-base sm:text-lg font-semibold text-[#FF5200] leading-tight mt-0.5">
+                            ${cartTotals.totalUSD.toFixed(2)} <span className="text-xs font-medium text-[#FF5200]">USD</span>
                           </div>
                         </div>
                         <div className="sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-100">
-                          <span className="text-[9.5px] uppercase font-bold text-[#4B5563] block tracking-wider">
-                            En Bolívares (Tasa BCV {formatVES(tasaBCV)}):
+                          <span className="text-xs text-gray-500 font-normal block">
+                            En bolívares (Tasa BCV {formatVES(tasaBCV)}):
                           </span>
                           <div className="flex items-center sm:justify-end gap-2 mt-0.5">
-                            <span className="font-mono text-base sm:text-lg font-black text-[#D97706] tracking-tight leading-tight">
+                            <span className="font-mono text-base sm:text-lg font-semibold text-[#FF5200] tracking-tight leading-tight">
                               Bs. {formatVES(cartTotals.totalBS)}
                             </span>
                             <button
                               type="button"
                               onClick={() => handleCopyBankData(formatVES(cartTotals.totalBS), 'monto_bs')}
-                              className="text-[10px] bg-amber-50 hover:bg-amber-100 text-[#D97706] border border-amber-300 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer font-bold transition-all shadow-xs active:scale-95 shrink-0"
+                              className="text-[10px] bg-gray-100 hover:bg-gray-200 text-[#111111] border border-gray-200 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer font-medium transition-all shadow-xs active:scale-95 shrink-0"
                               title="Copiar monto exacto en Bolívares para tu transferencia o Pago Móvil"
                             >
                               {copiedBankField === 'monto_bs' ? (
@@ -3143,16 +3716,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                 key={campo.id || `campo-${cIdx}`}
                                 className="flex justify-between items-center bg-white p-2 px-3 rounded-xl border border-gray-200 gap-2 shadow-xs"
                               >
-                                <span className="text-[#555555] text-[10.5px] shrink-0 font-medium">{cleanLabel}:</span>
+                                <span className="text-[#555555] text-[10.5px] shrink-0 font-normal">{cleanLabel}:</span>
                                 <div className="flex items-center gap-2 overflow-hidden">
-                                  <span className="font-bold text-[#111111] font-mono truncate text-right text-xs">
+                                  <span className="font-semibold text-[#111111] font-mono truncate text-right text-xs">
                                     {campo.valor}
                                   </span>
                                   {campo.copiable !== false && campo.valor && (
                                     <button
                                       type="button"
                                       onClick={() => handleCopyBankData(campo.valor, `field_${campo.id || cIdx}`)}
-                                      className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer shrink-0 font-bold border border-gray-200"
+                                      className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer shrink-0 font-medium border border-gray-200"
                                     >
                                       {copiedBankField === `field_${campo.id || cIdx}` ? (
                                         <Check size={10} className="text-emerald-600" />
@@ -3177,28 +3750,28 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                   {/* SECCIÓN 2: COMPROBANTE DE PAGO */}
                   {tipoConfirmacion === 'comprobante' && (
-                    <div className="bg-emerald-50/50 border border-emerald-200 rounded-2xl p-3 space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-wider text-emerald-800 flex items-center justify-between">
+                    <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3 space-y-2">
+                      <label className="text-xs font-normal text-gray-700 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
-                          <Receipt size={12} className="text-emerald-600" />
-                          <span>Adjuntar Comprobante de Pago (Captura o Foto) *</span>
+                          <Receipt size={13} className="text-gray-700" />
+                          <span>Adjuntar comprobante de pago (captura o foto) *</span>
                         </span>
-                        <span className="text-[9px] text-emerald-700 font-semibold">Requerido</span>
+                        <span className="text-[10px] text-gray-400 font-normal">Requerido</span>
                       </label>
 
                       {comprobanteUrl ? (
-                        <div className="bg-white border border-emerald-300 rounded-xl p-2.5 flex items-center justify-between gap-3 shadow-xs">
+                        <div className="bg-white border border-gray-200 rounded-xl p-2.5 flex items-center justify-between gap-3 shadow-xs">
                           <div className="flex items-center gap-2.5 overflow-hidden">
                             <img
                               src={comprobanteUrl}
                               alt="Comprobante de pago"
-                              className="w-11 h-11 object-cover rounded-lg border border-emerald-200 shrink-0"
+                              className="w-11 h-11 object-cover rounded-lg border border-gray-200 shrink-0"
                             />
                             <div className="overflow-hidden">
-                              <span className="text-xs font-bold text-emerald-800 block truncate">
+                              <span className="text-xs font-medium text-[#111111] block truncate">
                                 {comprobanteFileName || 'comprobante_pago.jpg'}
                               </span>
-                              <span className="text-[10px] text-emerald-600 font-mono flex items-center gap-1 font-semibold">
+                              <span className="text-[10px] text-emerald-600 font-mono flex items-center gap-1 font-medium">
                                 <CheckCircle2 size={10} /> Comprobante listo
                               </span>
                             </div>
@@ -3209,13 +3782,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               setComprobanteUrl(null);
                               setComprobanteFileName(null);
                             }}
-                            className="text-rose-600 hover:text-rose-700 text-[10px] font-bold py-1 px-2.5 rounded-lg bg-rose-50 border border-rose-200 shrink-0 cursor-pointer"
+                            className="text-rose-600 hover:text-rose-700 text-[10px] font-medium py-1 px-2.5 rounded-lg bg-rose-50 border border-rose-200 shrink-0 cursor-pointer"
                           >
                             Cambiar
                           </button>
                         </div>
                       ) : (
-                        <label className="border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/40 transition-all rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer text-center group shadow-xs">
+                        <label className="border-2 border-dashed border-gray-300 hover:border-black bg-white hover:bg-gray-50 transition-all rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer text-center group shadow-xs">
                           <input
                             type="file"
                             accept="image/*"
@@ -3224,20 +3797,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             disabled={isUploadingReceipt}
                           />
                           {isUploadingReceipt ? (
-                            <div className="flex items-center gap-2 text-xs text-emerald-700 font-bold py-1.5">
-                              <RotateCcw size={14} className="animate-spin text-emerald-600" />
+                            <div className="flex items-center gap-2 text-xs text-gray-700 font-medium py-1.5">
+                              <RotateCcw size={14} className="animate-spin text-black" />
                               <span>Optimizando comprobante...</span>
                             </div>
                           ) : (
                             <div className="flex items-center gap-2.5 py-1">
-                              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                              <div className="w-8 h-8 rounded-lg bg-gray-100 text-[#111111] flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
                                 <Upload size={15} />
                               </div>
                               <div className="text-left">
-                                <span className="text-xs font-bold text-[#111111] group-hover:text-emerald-700 block">
+                                <span className="text-xs font-medium text-[#111111] group-hover:text-black block">
                                   Toca para subir captura o foto
                                 </span>
-                                <span className="text-[9.5px] text-[#555555] block">
+                                <span className="text-[10px] text-gray-500 block font-normal">
                                   PNG, JPG o captura de pantalla
                                 </span>
                               </div>
@@ -3248,8 +3821,6 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-
-
                   {/* SECCIÓN 4: RESUMEN AL FINAL */}
                   <div className="bg-gray-50 border border-gray-200 rounded-2xl overflow-hidden transition-all shadow-xs">
                     <div
@@ -3258,7 +3829,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="flex items-center -space-x-1 shrink-0">
-                          {cart.slice(0, 3).map((item, idx) => {
+                          {cart.filter((item) => item.quantity > 0).slice(0, 3).map((item, idx) => {
                             const imgUrl = formatDirectImageUrl(item.product.variante_imagen_miniatura || item.product.imagen_portada || item.product.imagen_url || item.product.link);
                             return (
                               <div
@@ -3276,18 +3847,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               </div>
                             );
                           })}
-                          {cart.length > 3 && (
-                            <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300 text-amber-900 text-[8px] font-black flex items-center justify-center shrink-0 z-10 shadow-xs">
-                              +{cart.length - 3}
+                          {cart.filter((item) => item.quantity > 0).length > 3 && (
+                            <span className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300 text-amber-900 text-[8px] font-medium flex items-center justify-center shrink-0 z-10 shadow-xs">
+                              +{cart.filter((item) => item.quantity > 0).length - 3}
                             </span>
                           )}
                         </div>
 
                         <div className="flex items-center gap-1.5 truncate text-[#555555] text-[10.5px] sm:text-[11px]">
-                          <span className="font-bold text-[#111111] font-mono shrink-0">{cartTotals.totalUnits} items</span>
+                          <span className="font-semibold text-[#111111] font-mono shrink-0">{cartTotals.totalUnits} items</span>
                           <span className="text-gray-300">•</span>
                           <span className="truncate">
-                            Envío: <strong className="text-[#111111]">{clienteNombre || 'Cliente'}</strong> ({agenciaSeleccionada})
+                            Envío: <strong className="text-[#111111] font-medium">{clienteNombre || 'Cliente'}</strong> ({agenciaSeleccionada})
                           </span>
                         </div>
                       </div>
@@ -3299,7 +3870,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             e.stopPropagation();
                             setCheckoutStep(1);
                           }}
-                          className="text-[10px] text-amber-700 hover:text-amber-800 underline font-bold cursor-pointer"
+                          className="text-[10px] text-amber-700 hover:text-amber-800 underline font-medium cursor-pointer"
                         >
                           Modificar
                         </button>
@@ -3314,11 +3885,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     {isOrderSummaryExpanded && (
                       <div className="p-3 border-t border-gray-200 bg-white space-y-3 animate-fade-in text-xs">
                         <div className="space-y-1.5">
-                          <span className="text-[10px] font-black uppercase tracking-wider text-[#555555] block">
+                          <span className="text-xs font-normal text-gray-600 block">
                             Productos en tu pedido ({cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'unidad' : 'unidades'}):
                           </span>
                           <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
-                            {cart.map((item, idx) => {
+                            {cart.filter((item) => item.quantity > 0).map((item, idx) => {
                               const imgUrl = formatDirectImageUrl(item.product.variante_imagen_miniatura || item.product.imagen_portada || item.product.imagen_url || item.product.link);
                               return (
                                 <div
@@ -3336,15 +3907,15 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                       )}
                                     </div>
                                     <div className="min-w-0">
-                                      <p className="text-[11px] font-bold text-[#111111] truncate leading-tight">
+                                      <p className="text-[11px] font-medium text-[#111111] truncate leading-tight">
                                         {item.product.nombre}
                                       </p>
                                       <span className="text-[9.5px] text-[#555555]">
-                                        Cant: <strong className="text-[#111111] font-mono">{item.quantity}</strong> × ${item.precio_unitario.toFixed(2)} USD
+                                        Cant: <strong className="text-[#111111] font-mono font-medium">{item.quantity}</strong> × ${item.precio_unitario.toFixed(2)} USD
                                       </span>
                                     </div>
                                   </div>
-                                  <span className="text-[11px] font-mono font-bold text-[#111111] shrink-0">
+                                  <span className="text-[11px] font-mono font-semibold text-[#111111] shrink-0">
                                     ${item.subtotal.toFixed(2)}
                                   </span>
                                 </div>
@@ -3355,24 +3926,24 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                         {/* Mini resumen de datos de envío */}
                         <div className="pt-2 border-t border-gray-200 space-y-1 text-[10.5px]">
-                          <span className="text-[10px] font-black uppercase tracking-wider text-[#555555] block">
-                            Datos de Envío Registrados:
+                          <span className="text-xs font-normal text-gray-600 block">
+                            Datos de envío registrados:
                           </span>
                           <div className="bg-gray-50 p-2 rounded-xl border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[#555555]">
                             <div>
-                              <span className="text-gray-400 block text-[9px] uppercase font-bold">Destinatario:</span>
-                              <span className="text-[#111111] font-semibold">{clienteNombre || 'Sin nombre'} ({clienteCedula || 'Sin cédula'})</span>
+                              <span className="text-gray-400 block text-[9px] font-normal">Destinatario:</span>
+                              <span className="text-[#111111] font-medium">{clienteNombre || 'Sin nombre'} ({clienteCedula || 'Sin cédula'})</span>
                             </div>
                             <div>
-                              <span className="text-gray-400 block text-[9px] uppercase font-bold flex items-center gap-1">
+                              <span className="text-gray-400 block text-[9px] font-normal flex items-center gap-1">
                                 <img src="/whatsapp.png" alt="" className="w-3 h-3 object-contain shrink-0 inline" />
                                 <span>Teléfono / WhatsApp:</span>
                               </span>
-                              <span className="text-[#111111] font-semibold">{clienteTelefono || 'Sin teléfono'}</span>
+                              <span className="text-[#111111] font-medium">{clienteTelefono || 'Sin teléfono'}</span>
                             </div>
                             <div className="sm:col-span-2">
-                              <span className="text-gray-400 block text-[9px] uppercase font-bold">Agencia & Dirección:</span>
-                              <span className="text-[#111111] font-semibold">{agenciaSeleccionada}: {direccionAgencia || 'Sin dirección especificada'}</span>
+                              <span className="text-gray-400 block text-[9px] font-normal">Agencia y dirección:</span>
+                              <span className="text-[#111111] font-medium">{agenciaSeleccionada}: {direccionAgencia || 'Sin dirección especificada'}</span>
                             </div>
                           </div>
                         </div>
@@ -3385,30 +3956,24 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     <button
                       type="submit"
                       disabled={isSubmittingOrder || isUploadingReceipt}
-                      className={`w-full py-3.5 disabled:opacity-50 font-bold tracking-normal text-sm sm:text-base uppercase rounded-xl flex items-center justify-center gap-2.5 shadow-md cursor-pointer active:scale-98 transition-all ${
-                        tipoConfirmacion === 'comprobante'
-                          ? 'bg-emerald-400 hover:bg-emerald-300 text-[#111111] shadow-emerald-500/20'
-                          : 'bg-[#25D366] hover:bg-[#20ba5a] text-white shadow-lg shadow-[#25D366]/30 border border-[#25D366]'
-                      }`}
+                      className="w-full py-3.5 bg-[#000000] hover:bg-neutral-800 disabled:opacity-50 text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
                     >
-                      {tipoConfirmacion === 'comprobante' ? (
-                        <CheckCircle2 size={16} />
+                      {isSubmittingOrder ? (
+                        <RotateCcw size={16} className="animate-spin text-white" />
                       ) : (
-                        <img src="/whatsapp.png" alt="WhatsApp" className="w-5 h-5 object-contain shrink-0 drop-shadow-xs" />
+                        <CheckCircle2 size={16} className="text-white" />
                       )}
                       <span>
                         {isSubmittingOrder
-                          ? 'Procesando Pedido...'
-                          : tipoConfirmacion === 'comprobante'
-                            ? getText('btnSubmitReceipt')
-                            : getText('btnSubmitWhatsapp')}
+                          ? 'Procesando pedido...'
+                          : 'Confirmar pago'}
                       </span>
                     </button>
 
                     {/* Vía de escape y aclaratorias debajo del botón */}
                     {tipoConfirmacion === 'comprobante' ? (
                       <div className="space-y-1 text-center pt-0.5">
-                        <p className="text-[10.5px] sm:text-[11px] text-[#555555] font-medium leading-relaxed px-1">
+                        <p className="text-[10.5px] sm:text-[11px] text-[#555555] font-normal leading-relaxed px-1">
                           Al confirmar tu orden, se abrirá WhatsApp con el resumen de tu compra para confirmar cada detalle y responder cualquier consulta si lo deseas
                         </p>
 
@@ -3421,7 +3986,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             <img src="/whatsapp.png" alt="WhatsApp" className="w-4 h-4 object-contain group-hover:scale-110 transition-transform shrink-0" />
                             <span>
                               ¿Tienes problemas para pagar?{' '}
-                              <span className="underline font-bold text-[#128C7E] group-hover:text-[#075E54]">
+                              <span className="underline font-medium text-[#128C7E] group-hover:text-[#075E54]">
                                 Escríbenos al WhatsApp
                               </span>
                             </span>
@@ -3430,7 +3995,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-1 text-center pt-0.5">
-                        <p className="text-[10.5px] sm:text-[11px] text-[#555555] font-medium leading-relaxed px-1">
+                        <p className="text-[10.5px] sm:text-[11px] text-[#555555] font-normal leading-relaxed px-1">
                           Presiona confirmar para realizar el pago y concretar tu pedido con un asesor.
                         </p>
 
@@ -3443,7 +4008,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             <CheckCircle2 size={13} className="text-emerald-600" />
                             <span>
                               Prefiero realizar el pago directo y{' '}
-                              <span className="underline font-bold text-emerald-700">
+                              <span className="underline font-medium text-emerald-700">
                                 subir comprobante
                               </span>
                             </span>
@@ -3467,11 +4032,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           onClick={(e) => {
             if (e.target === e.currentTarget) setCompletedOrder(null);
           }}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto cursor-pointer"
+          className="fixed inset-0 z-[99999] bg-black/60 flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="relative bg-white border-2 border-emerald-500/50 rounded-3xl w-full max-w-lg max-h-[calc(100dvh-2.5rem)] overflow-y-auto p-5 sm:p-7 text-center space-y-5 shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111] cursor-default"
+            className="relative bg-white border border-emerald-500/30 rounded-3xl w-full max-w-lg max-h-[calc(100dvh-2.5rem)] overflow-y-auto p-5 sm:p-7 text-center space-y-5 shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111] cursor-default"
           >
             {/* Botón X visible en la esquina superior derecha */}
             <button
@@ -3483,12 +4048,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             >
               <X size={18} strokeWidth={2.5} />
             </button>
-            <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mx-auto shadow-md ${
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-sm ${
               completedOrder.tipo_confirmacion === 'comprobante_automatico'
-                ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
-                : 'bg-amber-100 text-amber-700 border border-amber-300'
+                ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                : 'bg-amber-50 text-amber-600 border border-amber-200'
             }`}>
-              <CheckCircle2 size={32} />
+              <CheckCircle2 size={28} />
             </div>
 
             <div className="space-y-1">
@@ -3498,13 +4063,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 isAdmin={isAdmin}
                 onOpenEditor={handleOpenTextEditorFor}
                 as="span"
-                className={`inline-block text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border font-mono ${
+                className={`inline-block text-xs font-medium px-2.5 py-0.5 rounded-full border ${
                   completedOrder.tipo_confirmacion === 'comprobante_automatico'
                     ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                     : 'bg-amber-50 text-amber-800 border-amber-300'
                 }`}
               />
-              <h3 className="font-extrabold text-2xl sm:text-3xl uppercase tracking-tight text-[#111111]">
+              <h3 className="font-medium text-2xl sm:text-3xl tracking-tight text-[#111111]">
                 #{completedOrder.numero_pedido}
               </h3>
               <EditableStoreText
@@ -3513,45 +4078,47 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 isAdmin={isAdmin}
                 onOpenEditor={handleOpenTextEditorFor}
                 as="p"
-                className="text-xs text-[#555555] font-medium"
+                className="text-xs text-[#555555] font-normal"
               />
             </div>
 
             {/* Order Details Card */}
             <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-left space-y-2 text-xs">
               <div className="flex justify-between border-b border-gray-200 pb-2">
-                <span className="text-[#555555]">Cliente:</span>
-                <span className="font-bold text-[#111111]">{completedOrder.cliente_nombre}</span>
+                <span className="text-[#555555] font-normal">Cliente:</span>
+                <span className="font-medium text-[#111111]">{completedOrder.cliente_nombre}</span>
               </div>
               <div className="flex justify-between border-b border-gray-200 pb-2">
-                <span className="text-[#555555]">Cédula:</span>
-                <span className="font-bold font-mono text-[#111111]">{completedOrder.cliente_cedula}</span>
+                <span className="text-[#555555] font-normal">Cédula:</span>
+                <span className="font-medium font-mono text-[#111111]">{completedOrder.cliente_cedula}</span>
               </div>
               <div className="flex justify-between border-b border-gray-200 pb-2">
-                <span className="text-[#555555]">Teléfono:</span>
-                <span className="font-bold font-mono text-[#111111]">{completedOrder.cliente_telefono}</span>
+                <span className="text-[#555555] font-normal">Teléfono:</span>
+                <span className="font-medium font-mono text-[#111111]">{completedOrder.cliente_telefono}</span>
               </div>
               <div className="border-b border-gray-200 pb-2">
-                <span className="text-[#555555] block mb-0.5">Agencia de Envío:</span>
-                <span className="font-bold text-[#111111] text-[11px] block">{completedOrder.direccion_agencia_envio}</span>
+                <span className="text-[#555555] font-normal block mb-0.5">Agencia de envío:</span>
+                <span className="font-medium text-[#111111] text-[11px] block">{completedOrder.direccion_agencia_envio}</span>
               </div>
               {completedOrder.referencia_pago && (
                 <div className="flex justify-between border-b border-gray-200 pb-2">
-                  <span className="text-[#555555]">N° Referencia:</span>
-                  <span className="font-bold font-mono text-emerald-700">{completedOrder.referencia_pago}</span>
+                  <span className="text-[#555555] font-normal">N° Referencia:</span>
+                  <span className="font-medium font-mono text-emerald-700">{completedOrder.referencia_pago}</span>
                 </div>
               )}
               {completedOrder.comprobante_url && (
                 <div className="border-b border-gray-200 pb-2 flex items-center justify-between">
-                  <span className="text-[#555555]">Comprobante Adjunto:</span>
-                  <span className="text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                  <span className="text-[#555555] font-normal">Comprobante adjunto:</span>
+                  <span className="text-[10px] font-medium text-emerald-700 flex items-center gap-1">
                     <CheckCircle2 size={11} /> Recibido en sistema
                   </span>
                 </div>
               )}
-              <div className="flex justify-between pt-1 font-mono">
-                <span className="text-[#111111] font-bold uppercase">Total del Pedido:</span>
-                <span className="text-base font-black text-emerald-700">${completedOrder.totalUSD.toFixed(2)} USD (Bs. {formatVES(completedOrder.totalBS)})</span>
+              <div className="flex justify-between pt-1">
+                <span className="text-gray-700 font-normal">Total del pedido:</span>
+                <span className="font-mono text-base font-semibold text-emerald-700">
+                  ${completedOrder.totalUSD.toFixed(2)} USD <span className="text-xs font-normal text-gray-500">(Bs. {formatVES(completedOrder.totalBS)})</span>
+                </span>
               </div>
             </div>
 
@@ -3560,18 +4127,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <button
                 type="button"
                 onClick={() => handleSendToWhatsApp(completedOrder)}
-                className="w-full py-3.5 font-bold text-sm sm:text-base rounded-2xl flex items-center justify-center gap-2.5 shadow-lg shadow-[#25D366]/30 cursor-pointer active:scale-95 transition-all bg-[#25D366] hover:bg-[#20ba5a] text-white border border-[#25D366]"
+                className="w-full py-3.5 font-medium text-sm sm:text-base rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all bg-[#25D366] hover:bg-[#20ba5a] text-white border border-[#25D366]"
               >
                 <img src="/whatsapp.png" alt="WhatsApp" className="w-5 h-5 object-contain shrink-0 drop-shadow-xs" />
-                <span>Ir a WhatsApp y Notificar/enviar copia de pedido</span>
+                <span>Ir a WhatsApp y notificar pedido</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setCompletedOrder(null)}
-                className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-[#111111] text-xs font-black uppercase rounded-xl transition-all cursor-pointer"
+                className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-[#111111] text-xs font-medium rounded-lg transition-all cursor-pointer"
               >
-                Seguir Comprando
+                Seguir comprando
               </button>
             </div>
           </div>
@@ -3583,15 +4150,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       {/* ========================================================= */}
       {quickViewProduct && (() => {
         const activeQV = quickViewActiveVariant || quickViewProduct;
+        const hasValidGroup = isValidGroupId(activeQV.grupo_id);
         // Obtener el item del catálogo correspondiente para reutilizar la lista unificada de variantes y kit
-        const parentCatalogItem = activeQV.grupo_id 
+        const parentCatalogItem = hasValidGroup 
           ? catalogItems.find(it => it.groupId === activeQV.grupo_id || it.id === activeQV.grupo_id)
           : null;
 
         const qvVariants: Producto[] = (parentCatalogItem 
           ? parentCatalogItem.variants 
-          : (activeQV.grupo_id 
-              ? sourceProducts.filter(p => p.grupo_id === activeQV.grupo_id && (Number(p.stock_disponible) || 0) > 0).sort((a, b) => {
+          : (hasValidGroup 
+              ? sourceProducts.filter(p => isValidGroupId(p.grupo_id) && p.grupo_id === activeQV.grupo_id && (Number(p.stock_disponible) || 0) > 0).sort((a, b) => {
                   if (a.es_principal_grupo && !b.es_principal_grupo) return -1;
                   if (!a.es_principal_grupo && b.es_principal_grupo) return 1;
                   return (a.variante_nombre || a.nombre).localeCompare(b.variante_nombre || b.nombre);
@@ -3601,7 +4169,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
         const qvImages = getItemImages(
           parentCatalogItem || {
-            isGroup: Boolean(activeQV.grupo_id),
+            isGroup: hasValidGroup,
             coverProduct: quickViewProduct,
             variants: qvVariants.length > 0 ? qvVariants : [activeQV],
             hasKit: Boolean(activeQV.grupo_tiene_kit),
@@ -3622,14 +4190,15 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 setQuickViewImageIndex(0);
               }
             }}
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-y-auto cursor-pointer"
+            className="fixed inset-0 z-[99999] bg-black/60 md:flex md:items-center md:justify-center p-0 md:p-5 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] overflow-hidden transition-all duration-200"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.60)' }}
           >
+            {/* Modal Box: Full-screen en Móvil (w-full h-full rounded-none), diálogo flotante elegante en Desktop (md:max-w-3xl md:h-auto md:max-h-[calc(100dvh-2.5rem)] md:rounded-3xl) */}
             <div 
               onClick={(e) => e.stopPropagation()}
-              className="relative bg-white border border-gray-200 rounded-3xl w-full max-w-3xl max-h-[calc(100dvh-2.5rem)] flex flex-col md:flex-row overflow-y-auto md:overflow-hidden shadow-2xl animate-scale-up my-auto custom-scrollbar text-[#111111] cursor-default"
+              className="relative bg-white w-full h-[100dvh] md:h-auto md:max-h-[calc(100dvh-2.5rem)] md:max-w-3xl rounded-none md:rounded-3xl md:border md:border-gray-200 flex flex-col md:flex-row overflow-hidden shadow-2xl animate-scale-up text-[#111111] cursor-default"
             >
-              
-              {/* Botón X Siempre Fijo en la Esquina Superior Derecha */}
+              {/* Botón X de Cierre Exclusivo para Desktop */}
               <button
                 type="button"
                 onClick={() => {
@@ -3637,192 +4206,285 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   setQuickViewActiveVariant(null);
                   setQuickViewImageIndex(0);
                 }}
-                className="absolute top-4 right-4 z-30 w-9 h-9 rounded-xl bg-gray-100 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0"
+                className="hidden md:flex absolute top-4 right-4 z-30 w-9 h-9 rounded-xl bg-gray-100 hover:bg-red-500 hover:text-white text-gray-700 items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0"
                 title="Cerrar ventana"
                 aria-label="Cerrar ventana"
               >
                 <X size={18} strokeWidth={2.5} />
               </button>
 
-              {/* Columna Izquierda: Carrusel Completo */}
-              <div className="w-full md:w-1/2 bg-gray-50 p-4 sm:p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-gray-200">
-                <StoreImageCarousel
-                  images={qvImages}
-                  currentIndex={quickViewImageIndex}
-                  onIndexChange={setQuickViewImageIndex}
-                  altText={activeQV.nombre}
-                  className="h-60 sm:h-72 md:h-84"
-                  showThumbnails={true}
-                />
-              </div>
+              {/* BARRA SUPERIOR FIJA EXCLUSIVA MÓVIL (HEADER DEL PRODUCTO TIPO SHEIN) */}
+              <header className="md:hidden sticky top-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-b border-gray-100 px-3 py-1.5 flex items-center justify-between shrink-0 h-10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickViewProduct(null);
+                    setQuickViewActiveVariant(null);
+                    setQuickViewImageIndex(0);
+                  }}
+                  className="p-1 -ml-1 text-gray-800 hover:text-black rounded-full active:scale-90 transition-transform cursor-pointer flex items-center justify-center shrink-0"
+                  aria-label="Volver al catálogo"
+                >
+                  <ArrowLeft size={19} strokeWidth={2.2} />
+                </button>
 
-              {/* Columna Derecha: Información y Selector Visual de Variantes (Flexbox con altura mínima y justify-between para evitar layout shift) */}
-              <div 
-                className="w-full md:w-1/2 p-5 sm:p-6 flex flex-col justify-between space-y-4 pr-12 sm:pr-14 min-h-[480px] md:min-h-[520px]"
-                style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
-              >
-                {/* Bloque Superior Informativo: 1) Título, 2) Precio (Naranja) y Tasa BCV, 3) Descripción corta */}
-                <div className="space-y-3">
-                  {/* 1) Título Principal en Title Case sin uppercase forzado */}
-                  <h3 className="font-extrabold text-lg sm:text-2xl tracking-tight text-[#111111] leading-tight">
+                <div className="flex-1 px-2 text-center min-w-0">
+                  <span className="text-xs font-medium text-gray-800 truncate block whitespace-nowrap">
                     {formatTitleCase(activeQV.grupo_nombre || activeQV.nombre)}
-                  </h3>
-
-                  {/* 2) Precios: fuente limpia mono en Naranja de Alta Conversión #FF5200 y Tasa BCV */}
-                  <div className="pt-0.5 font-mono">
-                    <div className="text-2xl sm:text-3xl font-black text-[#FF5200] tracking-tight">
-                      ${qvPriceUSD.toFixed(2)} USD
-                    </div>
-                    <p className="text-xs text-[#4B5563] font-semibold mt-0.5">
-                      ≈ Bs. {formatVES(qvPriceBS)} <span className="text-[#4B5563] font-normal text-[10px]">(Tasa BCV: {formatVES(tasaBCV)})</span>
-                    </p>
-                  </div>
-
-                  {/* Stock info con urgencia inteligente (solo si casi agotado, 5 o menos unidades) */}
-                  {activeQV.stock_disponible > 0 && activeQV.stock_disponible <= 5 && (
-                    <div>
-                      <span className="text-[11px] font-bold text-[#FF5722] flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl inline-flex">
-                        <span className="animate-pulse">⏳</span>
-                        <span>Casi agotado, quedan solo {activeQV.stock_disponible}</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {/* 3) Descripción corta con espacio reservado fijo (min-h-[60px]) para prevenir layout shift */}
-                  <div className="min-h-[60px] flex items-start">
-                    <p className="text-xs text-[#555555] leading-relaxed line-clamp-3">
-                      {activeQV.palabras_clave || 'Accesorio y repuesto garantizado de alta calidad seleccionado para motocicletas.'}
-                    </p>
-                  </div>
+                  </span>
                 </div>
 
-                {/* Zona interactiva agrupada en la parte inferior: 4) Variantes, 5) Cantidad, 6) Botón negro principal */}
-                <div 
-                  className="sticky bottom-0 z-50 bg-white pt-3 pb-2 sm:pb-0 border-t border-gray-100 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] sm:shadow-none space-y-3 mt-auto shrink-0"
-                  style={{ position: 'sticky', bottom: 0, zIndex: 50 }}
+                <button
+                  id="modal-cart-button"
+                  type="button"
+                  onClick={() => setIsCartOpen(true)}
+                  className={`relative p-1 text-gray-800 hover:text-black rounded-full transition-all cursor-pointer flex items-center justify-center active:scale-90 shrink-0 ${
+                    isCartBouncing ? 'scale-125 text-emerald-500 rotate-6' : ''
+                  }`}
+                  aria-label={`Ver carrito con ${cartTotals.totalUnits} artículos`}
                 >
-                  {/* 4) Selector de Modelo/Variantes */}
-                  {qvVariants.length > 1 && (
-                    <div className="space-y-1.5">
-                      {/* Etiqueta unificada "Modelo:" con truncado en una sola línea para evitar saltos por textos largos */}
-                      <div className="flex items-center text-xs min-w-0 overflow-hidden whitespace-nowrap">
-                        <span className="text-[#555555] font-semibold flex items-center gap-1.5 shrink-0">
-                          <Boxes size={13} className="text-amber-500 shrink-0" />
-                          <span>Modelo:</span>
-                        </span>
-                        <strong 
-                          className="text-[#111111] font-bold underline truncate ml-1.5 min-w-0"
-                          title={formatTitleCase(activeQV.variante_nombre || activeQV.nombre)}
-                        >
-                          {formatTitleCase(activeQV.variante_nombre || activeQV.nombre)}
-                        </strong>
-                      </div>
+                  <ShoppingCart size={18} className={`stroke-[2.2] transition-colors ${isCartBouncing ? 'text-emerald-500' : 'text-gray-800'}`} />
+                  {cartTotals.totalUnits > 0 && (
+                    <span className={`absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-600 text-white text-[8.5px] font-black flex items-center justify-center border border-white ${isCartBouncing ? 'animate-bounce scale-110' : 'animate-scale-up'}`}>
+                      {cartTotals.totalUnits}
+                    </span>
+                  )}
+                </button>
+              </header>
 
-                      {/* Miniaturas de variantes para QuickView */}
-                      <div className="flex items-center gap-2 overflow-x-auto py-1 px-0.5 custom-scrollbar">
-                        {qvVariants.map((v) => {
-                          const isSelected = activeQV.id === v.id;
-                          const vStock = (v.stock_disponible || 0) > 0;
-                          const vImg = formatDirectImageUrl(
-                            v.es_kit 
-                              ? (parentCatalogItem?.kitImage || v.grupo_kit_imagen || v.variante_imagen_miniatura || v.imagen_url)
-                              : (v.variante_imagen_miniatura || v.imagen_portada || v.variante_imagen_hd || v.imagen_url || v.link)
-                          );
-                          return (
+              {/* ÁREA DE SCROLL CENTRAL (MÓVIL Y DESKTOP) */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col md:flex-row w-full pb-2 md:pb-0">
+                {/* Columna Izquierda / Imagen: En móvil limitada a max-h-[36vh] y h-48 para que todo entre above the fold */}
+                <div id="quickview-main-image" className="w-full md:w-1/2 bg-white md:bg-gray-50 p-0 md:p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-gray-200 shrink-0">
+                  <StoreImageCarousel
+                    images={qvImages}
+                    currentIndex={quickViewImageIndex}
+                    onIndexChange={setQuickViewImageIndex}
+                    altText={activeQV.nombre}
+                    className="h-48 max-h-[36vh] sm:h-60 md:h-84 md:max-h-none rounded-none md:rounded-xl"
+                    imageClassName="object-contain md:object-cover"
+                    showThumbnails={true}
+                  />
+                </div>
+
+                {/* Columna Derecha / Información y Selector Visual de Variantes */}
+                <div className="w-full md:w-1/2 p-3 sm:p-4 md:p-6 flex flex-col justify-between space-y-2 md:space-y-4 md:pr-12 lg:pr-14 md:min-h-[480px]">
+                  {/* Bloque Superior Informativo: Título, Precios, Stock, Descripción */}
+                  <div className="space-y-1.5 sm:space-y-2 md:space-y-3">
+                    {/* Título Principal */}
+                    <h3 className="font-medium text-base sm:text-lg md:text-2xl tracking-tight text-[#111111] leading-tight">
+                      {formatTitleCase(activeQV.grupo_nombre || activeQV.nombre)}
+                    </h3>
+
+                    {/* Precios: fuente limpia mono en Naranja #FF5200 y Tasa BCV agrupados */}
+                    <div className="pt-0 font-mono">
+                      <div className="text-xl sm:text-2xl md:text-3xl font-semibold text-[#FF5200] tracking-tight leading-none">
+                        ${qvPriceUSD.toFixed(2)} USD
+                      </div>
+                      <p className="text-xs sm:text-sm text-gray-500 font-normal mt-0.5 leading-none">
+                        ≈ Bs. {formatVES(qvPriceBS)} <span className="text-gray-400 font-normal text-[11px] sm:text-xs">(Tasa BCV: {formatVES(tasaBCV)})</span>
+                      </p>
+                    </div>
+
+                    {/* Stock info con urgencia inteligente */}
+                    {activeQV.stock_disponible > 0 && activeQV.stock_disponible <= 5 && (
+                      <div className="pt-0.5">
+                        <span className="text-[10px] sm:text-[11px] font-normal text-[#FF5722] flex items-center gap-1 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-md inline-flex">
+                          <span className="animate-pulse">⏳</span>
+                          <span>Casi agotado, quedan solo {activeQV.stock_disponible}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Descripción del producto (solo si existe en la base de datos, sin textos ni espacios de relleno) */}
+                    {Boolean(((activeQV as any).descripcion || activeQV.palabras_clave || activeQV.notas)?.trim()) && (
+                      <p className="text-[11px] sm:text-xs text-gray-600 font-normal leading-snug line-clamp-2 sm:line-clamp-3 pt-0.5">
+                        {((activeQV as any).descripcion || activeQV.palabras_clave || activeQV.notas || '').trim()}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Zona interactiva: Variantes y Selector de Cantidad */}
+                  <div className="space-y-2 sm:space-y-2.5 md:space-y-3.5 pt-1 sm:pt-2">
+                    {/* Selector de Modelo/Variantes */}
+                    {qvVariants.length > 1 && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] sm:text-xs min-w-0 overflow-hidden whitespace-nowrap gap-2">
+                          <div className="flex items-center min-w-0 overflow-hidden whitespace-nowrap">
+                            <span className="text-gray-600 font-normal flex items-center gap-1 shrink-0">
+                              <Boxes size={11} className="text-amber-500 shrink-0" />
+                              <span>Modelo:</span>
+                            </span>
+                            <strong 
+                              className="text-gray-900 font-medium truncate ml-1 min-w-0"
+                              title={formatTitleCase(activeQV.variante_nombre || activeQV.nombre)}
+                            >
+                              {formatTitleCase(activeQV.variante_nombre || activeQV.nombre)}
+                            </strong>
+                          </div>
+
+                          {effectiveAdmin && (
                             <button
-                              key={`qv-visual-var-${v.id}`}
                               type="button"
                               onClick={() => {
-                                setQuickViewActiveVariant(v);
-                                setQuickViewImageIndex(0);
-                                setQuickViewQty(1);
+                                setVariantsModalInitialGroupId(hasValidGroup ? activeQV.grupo_id : null);
+                                setIsVariantsModalOpen(true);
                               }}
-                              className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
-                                isSelected
-                                  ? 'border-[#FF5200] ring-2 ring-[#FF5200]/50 scale-105 shadow-sm z-10'
-                                  : 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
-                              }`}
-                              title={v.variante_nombre || (v.es_kit ? 'Kit' : v.nombre)}
+                              className="text-[9px] bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded flex items-center gap-1 font-medium cursor-pointer transition-colors shrink-0"
+                              title="Gestionar variantes de este grupo o desvincular productos"
                             >
-                              {vImg ? (
-                                <img
-                                  src={vImg}
-                                  alt={v.variante_nombre || v.nombre}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
-                                  }}
-                                />
-                              ) : (
-                                <span className="text-[8px] font-black text-gray-500 uppercase text-center p-0.5 truncate leading-none">
-                                  {v.es_kit ? 'KIT' : (v.variante_nombre || v.nombre).slice(0, 4)}
-                                </span>
-                              )}
+                              <Boxes size={10} className="text-[#FF5200]" />
+                              <span>Gestionar</span>
                             </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                          )}
+                        </div>
 
-                  {/* 5) Selector de Cantidad */}
-                  {qvInStock && (
-                    <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5">
-                      <span className="text-xs font-bold text-[#555555]">Cantidad:</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setQuickViewQty((prev) => Math.max(1, prev - 1))}
-                          disabled={quickViewQty <= 1}
-                          className="w-7 h-7 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-30 text-[#111111] font-bold flex items-center justify-center transition-colors cursor-pointer"
-                          aria-label="Disminuir cantidad"
-                        >
-                          <Minus size={13} />
-                        </button>
-                        <span className="font-mono font-bold text-[#111111] text-sm w-7 text-center">
-                          {quickViewQty}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setQuickViewQty((prev) => Math.min(activeQV.stock_disponible || 99, prev + 1))}
-                          disabled={quickViewQty >= (activeQV.stock_disponible || 99)}
-                          className="w-7 h-7 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-30 text-[#111111] font-bold flex items-center justify-center transition-colors cursor-pointer"
-                          aria-label="Aumentar cantidad"
-                        >
-                          <Plus size={13} />
-                        </button>
+                        {/* Miniaturas de variantes para QuickView */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 px-0.5 custom-scrollbar">
+                          {qvVariants.map((v) => {
+                            const isSelected = activeQV.id === v.id;
+                            const rawThumb = v.es_kit 
+                              ? (v.grupo_kit_imagen || parentCatalogItem?.kitImage || v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url)
+                              : (v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url);
+                            const vImg = rawThumb ? formatDirectImageUrl(rawThumb) : '';
+                            return (
+                              <button
+                                key={v.id}
+                                type="button"
+                                onClick={() => {
+                                  setQuickViewActiveVariant(v);
+                                  setQuickViewImageIndex(0);
+                                  setQuickViewQty(1);
+                                }}
+                                className={`w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12 rounded-lg md:rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
+                                  isSelected
+                                    ? 'border-[#FF5200] ring-1 ring-[#FF5200]/40 scale-105 shadow-2xs z-10'
+                                    : 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
+                                }`}
+                                title={v.variante_nombre || (v.es_kit ? 'Kit' : v.nombre)}
+                              >
+                                {vImg ? (
+                                  <img
+                                    src={vImg}
+                                    alt={v.variante_nombre || v.nombre}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
+                                    }}
+                                  />
+                                ) : (
+                                  <span className="text-[7.5px] font-medium text-gray-500 text-center p-0.5 truncate leading-none">
+                                    {v.es_kit ? 'Kit' : (v.variante_nombre || v.nombre).slice(0, 4)}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  )}
-
-                  {/* 6) Botón negro principal (Negro Sólido #000000 con texto en MAYÚSCULAS) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleAddToCart(activeQV, quickViewQty);
-                      setQuickViewAdded(true);
-                      setTimeout(() => setQuickViewAdded(false), 2200);
-                    }}
-                    disabled={!qvInStock}
-                    className={`w-full py-3 rounded-xl font-black uppercase text-xs sm:text-sm tracking-wide flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-98 ${
-                      quickViewAdded
-                        ? 'bg-emerald-600 text-white shadow-emerald-600/30'
-                        : 'bg-[#000000] hover:bg-neutral-800 text-white shadow-black/20 disabled:opacity-30'
-                    }`}
-                  >
-                    {quickViewAdded ? (
-                      <>
-                        <Check size={16} className="stroke-[3]" />
-                        <span>¡AGREGADO AL CARRITO ({quickViewQty})!</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart size={16} />
-                        <span>AGREGAR AL CARRITO</span>
-                      </>
                     )}
-                  </button>
+
+                    {/* Selector de Cantidad */}
+                    {qvInStock && (
+                      <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg sm:rounded-xl px-2.5 py-1 sm:px-3 sm:py-1.5">
+                        <span className="text-xs font-normal text-gray-600">Cantidad:</span>
+                        <div className="flex items-center gap-1.5 sm:gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setQuickViewQty((prev) => Math.max(1, prev - 1))}
+                            disabled={quickViewQty <= 1}
+                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-md bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-30 text-[#111111] font-medium flex items-center justify-center transition-colors cursor-pointer"
+                            aria-label="Disminuir cantidad"
+                          >
+                            <Minus size={11} />
+                          </button>
+                          <span className="font-mono font-medium text-[#111111] text-xs sm:text-sm w-6 sm:w-7 text-center">
+                            {quickViewQty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setQuickViewQty((prev) => Math.min(activeQV.stock_disponible || 99, prev + 1))}
+                            disabled={quickViewQty >= (activeQV.stock_disponible || 99)}
+                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-md bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-30 text-[#111111] font-medium flex items-center justify-center transition-colors cursor-pointer"
+                            aria-label="Aumentar cantidad"
+                          >
+                            <Plus size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* BOTÓN EN DESKTOP (Integrado al pie de la columna derecha) */}
+                    <div className="hidden md:block pt-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          handleAddToCart(
+                            activeQV, 
+                            quickViewQty, 
+                            document.getElementById('quickview-main-image') || (e.currentTarget as HTMLElement)
+                          );
+                          setQuickViewAdded(true);
+                          setTimeout(() => setQuickViewAdded(false), 2000);
+                        }}
+                        disabled={!qvInStock}
+                        className={`w-full py-3.5 rounded-lg font-medium text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-98 ${
+                          quickViewAdded
+                            ? 'bg-emerald-600 text-white shadow-emerald-600/30'
+                            : 'bg-[#000000] hover:bg-neutral-800 text-white shadow-black/20 disabled:opacity-30'
+                        }`}
+                      >
+                        {quickViewAdded ? (
+                          <>
+                            <Check size={16} className="stroke-[3]" />
+                            <span>¡Agregado al carrito ({quickViewQty})!</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShoppingCart size={16} />
+                            <span>Agregar al carrito</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              </div>
+
+              {/* BARRA INFERIOR DE ACCIÓN FIJA (STICKY BOTTOM BAR EXCLUSIVA MÓVIL TIPO SHEIN) */}
+              <div 
+                className="md:hidden sticky bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 px-3 py-2 pb-[max(10px,calc(env(safe-area-inset-bottom)+6px))] shadow-[0_-2px_10px_rgba(0,0,0,0.06)] shrink-0"
+              >
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    handleAddToCart(
+                      activeQV, 
+                      quickViewQty, 
+                      document.getElementById('quickview-main-image') || (e.currentTarget as HTMLElement)
+                    );
+                    setQuickViewAdded(true);
+                    setTimeout(() => setQuickViewAdded(false), 2000);
+                  }}
+                  disabled={!qvInStock}
+                  className={`w-full py-2.5 rounded-lg font-medium text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-98 ${
+                    quickViewAdded
+                      ? 'bg-emerald-600 text-white shadow-emerald-600/30'
+                      : 'bg-[#000000] hover:bg-neutral-800 text-white shadow-black/20 disabled:opacity-30'
+                  }`}
+                >
+                  {quickViewAdded ? (
+                    <>
+                      <Check size={16} className="stroke-[3]" />
+                      <span>¡Agregado al carrito ({quickViewQty})!</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart size={16} />
+                      <span>Agregar al carrito</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>
@@ -3835,7 +4497,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       <footer className="bg-[#0F1115] border-t border-gray-800 py-10 px-4 sm:px-6 text-gray-400 text-xs">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
           <div>
-            <h4 className="font-extrabold text-lg tracking-tight uppercase text-[#FFC107]">
+            <h4 className="font-medium text-lg tracking-tight text-[#FFC107]">
               Lo que los bikers quieren
             </h4>
             <div className="mt-0.5">
@@ -3850,7 +4512,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 sm:gap-4 text-[11px] font-bold">
+          <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 sm:gap-4 text-[11px] font-medium">
             <span className="text-gray-300">Envíos: MRW • Zoom • Tealca • Domesa</span>
             <span className="text-gray-600 hidden sm:inline">•</span>
             <span className="text-emerald-400">Tasa BCV Oficial Garantizada</span>
@@ -3895,6 +4557,136 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         methods={paymentMethods}
         onSaveMethods={handleSavePaymentMethods}
       />
+
+      {/* Modal para supervisar y gestionar variantes y grupos (Admin) */}
+      <ProductVariantsModal
+        isOpen={isVariantsModalOpen}
+        onClose={() => setIsVariantsModalOpen(false)}
+        products={sourceProducts}
+        initialGroupId={variantsModalInitialGroupId}
+      />
+
+      {/* TARJETA DE CONFIRMACIÓN (MINI-CART DROPDOWN) EN PRIMER PLANO ABSOLUTO Z-[100000] */}
+      {addedHeaderDropdown && (
+        <aside
+          role="status"
+          aria-live="polite"
+          className={`fixed z-[100000] w-72 sm:w-80 bg-[#111111] text-white border border-neutral-700/80 rounded-2xl p-3 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
+            isDropdownClosing 
+              ? '-translate-y-3 opacity-0 pointer-events-none' 
+              : 'translate-y-0 opacity-100'
+          }`}
+          style={{
+            top: dropdownPosition.top,
+            right: dropdownPosition.right,
+            boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.12)'
+          }}
+        >
+          {/* Flechita superior apuntando al ícono del carrito */}
+          <div className="absolute -top-1.5 right-4 w-3 h-3 bg-[#111111] border-l border-t border-neutral-700/80 rotate-45" />
+
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-800">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10.5px] font-medium text-emerald-400">
+                Nuevo producto agregado
+              </span>
+            </div>
+            <span className="text-[10px] font-mono text-gray-400">
+              {cartTotals.totalUnits} en carrito
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <div className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-700 overflow-hidden shrink-0 flex items-center justify-center">
+              {addedHeaderDropdown.imageUrl ? (
+                <img
+                  src={formatDirectImageUrl(addedHeaderDropdown.imageUrl)}
+                  alt={addedHeaderDropdown.productName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <ShoppingCart size={16} className="text-neutral-500" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h4 className="text-xs font-medium text-gray-100 truncate leading-snug">
+                {addedHeaderDropdown.productName}
+              </h4>
+              <div className="flex items-baseline gap-1 mt-0.5 font-mono">
+                <span className="text-xs font-semibold text-[#FF5200]">
+                  ${addedHeaderDropdown.priceUSD.toFixed(2)} USD
+                </span>
+                {addedHeaderDropdown.quantity > 1 && (
+                  <span className="text-[10px] text-gray-400 font-sans">
+                    × {addedHeaderDropdown.quantity}
+                  </span>
+                )}
+              </div>
+              <div className="text-[9.5px] font-normal text-gray-400 font-mono">
+                ≈ Bs. {formatVES(addedHeaderDropdown.priceBS)}
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2.5 mt-2 border-t border-neutral-800 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAddedHeaderDropdown(null);
+                setIsCartOpen(true);
+              }}
+              className="flex-1 py-1.5 px-2 bg-white hover:bg-gray-100 text-[#111111] text-xs font-medium rounded-lg transition-colors text-center cursor-pointer shadow-xs"
+            >
+              Ver carrito
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsDropdownClosing(true);
+                setTimeout(() => setAddedHeaderDropdown(null), 250);
+              }}
+              className="px-2 py-1.5 text-gray-400 hover:text-white text-[10px] font-medium cursor-pointer transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </aside>
+      )}
+
+      {/* Elemento Clon Volador Fly-to-Cart (Feedback Espacial hacia el Header o Modal) */}
+      {flyingItem && (
+        <div
+          key={flyingItem.id}
+          className="fixed pointer-events-none z-[100001] rounded-2xl overflow-hidden shadow-2xl border-2 border-white/90 bg-white"
+          style={{
+            width: 68,
+            height: 68,
+            left: flyingItem.startX - 34,
+            top: flyingItem.startY - 34,
+            transform: flyingItem.isFlying
+              ? `translate3d(${flyingItem.targetX - flyingItem.startX}px, ${flyingItem.targetY - flyingItem.startY}px, 0) scale(0.2) rotate(16deg)`
+              : 'translate3d(0, 0, 0) scale(1) rotate(0deg)',
+            opacity: flyingItem.isFlying ? 0.35 : 1,
+            transition: 'transform 0.62s cubic-bezier(0.2, 0.8, 0.25, 1), opacity 0.62s cubic-bezier(0.4, 0, 1, 1)',
+            boxShadow: flyingItem.isFlying
+              ? '0 4px 12px rgba(0,0,0,0.35)'
+              : '0 20px 40px rgba(0,0,0,0.5)'
+          }}
+        >
+          {flyingItem.imageUrl ? (
+            <img
+              src={flyingItem.imageUrl}
+              alt=""
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-[#111111] text-[#FF5200] flex items-center justify-center font-bold">
+              <ShoppingCart size={26} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -391,3 +391,16 @@ export const formatVES = (val: number | string): string => {
   return `${isNegative ? '-' : ''}${withDots},${decPart}`;
 };
 
+/**
+ * Formatea un texto a formato "Title Case" o "Sentence Case" para títulos limpios y minimalistas
+ */
+export const formatTitleCase = (text?: string): string => {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+

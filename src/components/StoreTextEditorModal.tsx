@@ -17,32 +17,32 @@ import { StoreCustomTexts } from '../types';
 export const DEFAULT_STORE_TEXTS: Required<StoreCustomTexts> = {
   topAnnouncement: "Envíos a toda Venezuela vía MRW • Zoom • Tealca • Domesa",
   headerSubtitle: "E-Commerce Oficial • Accesorios para Motos",
-  heroTitle: "LO QUE LOS BIKERS QUIEREN",
+  heroTitle: "Lo que los bikers quieren",
   heroSubtitle: "Equípate con lo mejor. Selecciona tus productos favoritos, agrega al carrito y recibe directamente en tu agencia de encomienda más cercana.",
   badgeProtected: "Compra Protegida",
   badgeDispatch: "Despacho en 24h",
   badgePrices: "Precios en Bs y USD",
-  stepsBoxTitle: "¿CÓMO COMPRAR EN 3 PASOS?",
+  stepsBoxTitle: "¿Cómo comprar en 3 pasos?",
   step1: "Selecciona tus productos y pulsa \"Agregar al Carrito\".",
   step2: "Ingresa tu Nombre, Cédula, Teléfono y Agencia de envío.",
   step3: "Confirma y recibe tu comprobante directo a tu WhatsApp.",
-  catalogTitle: "CATÁLOGO",
+  catalogTitle: "Catálogo",
   catalogSubtitle: "Explora accesorios seleccionados para tu moto",
-  cartDrawerTitle: "Tu Carrito Biker",
+  cartDrawerTitle: "Tu carrito",
   cartDrawerSubtitle: "Revisa tus productos seleccionados",
-  checkoutModalTitle: "Datos de Envío y Confirmación",
-  checkoutModalSubtitle: "Lo que los bikers quieren • Despacho Seguro",
+  checkoutModalTitle: "Datos de envío y confirmación",
+  checkoutModalSubtitle: "Lo que los bikers quieren • Despacho seguro",
   optionWhatsappTitle: "Pagar por WhatsApp",
   optionWhatsappBadge: "Sin comprobante previo",
   optionWhatsappDesc: "Envía tu orden y coordina el pago directamente por WhatsApp. El administrador confirmará el pedido manualmente.",
-  optionReceiptTitle: "Pagar Ahora y Subir Comprobante",
-  optionReceiptBadge: "Confirmación Automática",
+  optionReceiptTitle: "Pagar ahora y subir comprobante",
+  optionReceiptBadge: "Confirmación automática",
   optionReceiptDesc: "Paga de una vez y sube tu comprobante. Tu venta entra a ingresos y el stock se descuenta automáticamente.",
-  btnSubmitWhatsapp: "CONFIRMAR Y CONCRETAR POR WHATSAPP",
-  btnSubmitReceipt: "CONFIRMAR PAGO Y REGISTRAR VENTA AUTOMÁTICA",
+  btnSubmitWhatsapp: "Confirmar y concretar por WhatsApp",
+  btnSubmitReceipt: "Confirmar pago y registrar venta",
   whatsappNotice: "Al confirmar, tu pedido quedará guardado como recibido para coordinar el pago por WhatsApp con el administrador.",
   receiptNotice: "Al confirmar con comprobante, la venta se registrará de una vez en ingresos y el stock se descontará automáticamente.",
-  orderSuccessTitle: "¡PEDIDO RECIBIDO CON ÉXITO!",
+  orderSuccessTitle: "¡Pedido recibido con éxito!",
   orderSuccessSubtitle: "Tu orden ha sido registrada en el sistema de Lo que los bikers quieren",
   footerTagline: "Pasión por las dos ruedas • Accesorios y equipamiento para motociclistas",
   searchPlaceholder: "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."
@@ -351,15 +351,15 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-white/10 bg-[#0a0d14] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-400 to-orange-500 text-black flex items-center justify-center font-black shadow-lg shadow-amber-500/20">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-400 to-orange-500 text-black flex items-center justify-center font-bold shadow-lg shadow-amber-500/20">
               <Edit3 size={20} />
             </div>
             <div>
-              <h3 className="font-extrabold text-lg sm:text-xl uppercase tracking-tight text-white leading-none">
-                Editor de Textos y Aclaratorias de la Tienda
+              <h3 className="font-medium text-lg sm:text-xl tracking-tight text-white leading-none">
+                Editor de textos y aclaratorias de la tienda
               </h3>
-              <p className="text-[10px] sm:text-xs text-slate-400 font-bold mt-0.5">
-                Modifica, resume o quita cualquier texto fijo visible en el e-commerce (Solo Administrador)
+              <p className="text-[10px] sm:text-xs text-slate-400 font-normal mt-0.5">
+                Modifica, resume o quita cualquier texto fijo visible en el e-commerce (Solo administrador)
               </p>
             </div>
           </div>
@@ -368,11 +368,11 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
             <button
               type="button"
               onClick={handleResetAll}
-              className="px-2.5 py-1.5 bg-white/5 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/10 rounded-xl text-[9px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1.5 bg-white/5 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/10 rounded-xl text-[9px] font-medium transition-all flex items-center gap-1 cursor-pointer"
               title="Restablecer todos los textos al diseño original"
             >
               <RotateCcw size={11} />
-              <span className="hidden sm:inline">Restablecer Todo</span>
+              <span className="hidden sm:inline">Restablecer todo</span>
             </button>
             <button
               type="button"
@@ -395,9 +395,9 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
                 key={group.id}
                 type="button"
                 onClick={() => setActiveTabId(group.id)}
-                className={`px-3 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-black uppercase whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
                   isActive
-                    ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
+                    ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-medium'
                     : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
                 }`}
               >
@@ -438,7 +438,7 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
                       <label className="text-xs sm:text-[13px] font-bold text-white flex items-center gap-1.5">
                         <span>{field.label}</span>
                         {isModified && (
-                          <span className="text-[8px] bg-amber-400/20 text-amber-300 border border-amber-400/30 px-1.5 py-0.2 rounded font-mono font-bold uppercase">
+                          <span className="text-[8px] bg-amber-400/20 text-amber-300 border border-amber-400/30 px-1.5 py-0.2 rounded font-mono font-medium">
                             Personalizado
                           </span>
                         )}
@@ -491,7 +491,7 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-white/15 text-slate-300 hover:text-white hover:bg-white/5 text-xs font-bold uppercase transition-all"
+                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-white/15 text-slate-300 hover:text-white hover:bg-white/5 text-xs font-medium transition-all"
               >
                 Cancelar
               </button>
@@ -499,7 +499,7 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
               <button
                 type="submit"
                 disabled={isSaving}
-                className="flex-1 sm:flex-none px-6 py-2.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-black font-black uppercase text-xs rounded-xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all disabled:opacity-50"
+                className="flex-1 sm:flex-none px-6 py-2.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-black font-medium text-xs rounded-xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all disabled:opacity-50"
               >
                 {savedSuccess ? (
                   <>
@@ -509,7 +509,7 @@ export const StoreTextEditorModal: React.FC<StoreTextEditorModalProps> = ({
                 ) : (
                   <>
                     <Save size={14} />
-                    <span>{isSaving ? 'Guardando...' : 'Guardar Todos los Textos'}</span>
+                    <span>{isSaving ? 'Guardando...' : 'Guardar todos los textos'}</span>
                   </>
                 )}
               </button>

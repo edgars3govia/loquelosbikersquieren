@@ -8,6 +8,20 @@ export function formatDirectImageUrl(rawUrl?: string | null): string {
   let url = rawUrl.trim();
   if (!url) return '';
 
+  const lower = url.toLowerCase();
+  if (
+    lower === 'null' ||
+    lower === 'undefined' ||
+    lower === 'none' ||
+    lower === 'false' ||
+    lower === 'true' ||
+    lower === '[object object]' ||
+    lower === 'sin foto' ||
+    lower === 'sin_foto'
+  ) {
+    return '';
+  }
+
   // Fix protocol-relative URLs (e.g. //cbu01.alicdn.com/...)
   if (url.startsWith('//')) {
     url = `https:${url}`;

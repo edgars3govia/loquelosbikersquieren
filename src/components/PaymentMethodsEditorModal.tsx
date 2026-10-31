@@ -190,14 +190,14 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-white/10 bg-[#0a0d14] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-amber-400 to-orange-500 text-black flex items-center justify-center font-black shadow-md shadow-amber-500/20">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-amber-400 to-orange-500 text-black flex items-center justify-center font-bold shadow-md shadow-amber-500/20">
               <CreditCard size={18} />
             </div>
             <div>
-              <h3 className="font-extrabold text-base sm:text-xl uppercase tracking-tight text-white leading-none">
-                Configurar Métodos y Datos de Pago
+              <h3 className="font-medium text-base sm:text-xl tracking-tight text-white leading-none">
+                Configurar métodos y datos de pago
               </h3>
-              <p className="text-[10px] sm:text-xs text-amber-300 font-bold uppercase mt-0.5">
+              <p className="text-[10px] sm:text-xs text-amber-300 font-normal mt-0.5">
                 Edita manualmente tus cuentas de Pago Móvil, Transferencia, Zinli, USDT y más
               </p>
             </div>
@@ -218,8 +218,8 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
         <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
           {/* Sidebar: Methods List */}
           <div className="w-full md:w-56 bg-[#07090e] border-b md:border-b-0 md:border-r border-white/10 p-3 flex md:flex-col gap-1.5 overflow-x-auto md:overflow-y-auto custom-scrollbar shrink-0">
-            <div className="hidden md:flex items-center justify-between px-2 py-1 text-[9px] font-black uppercase tracking-wider text-slate-500">
-              <span>Métodos de Pago</span>
+            <div className="hidden md:flex items-center justify-between px-2 py-1 text-[9px] font-medium text-slate-500">
+              <span>Métodos de pago</span>
               <span>{editingMethods.length}</span>
             </div>
 
@@ -230,7 +230,7 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
                   key={m.id}
                   type="button"
                   onClick={() => setSelectedMethodId(m.id)}
-                  className={`w-full text-left p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between gap-2 whitespace-nowrap cursor-pointer ${
+                  className={`w-full text-left p-2.5 rounded-xl text-xs font-medium transition-all flex items-center justify-between gap-2 whitespace-nowrap cursor-pointer ${
                     isSelected
                       ? 'bg-amber-500/20 border border-amber-400 text-white shadow-md'
                       : 'bg-white/5 border border-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
@@ -240,7 +240,7 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
                     <span className="w-2 h-2 rounded-full shrink-0 bg-emerald-400" />
                     <span className="truncate">{m.nombre || 'Sin nombre'}</span>
                   </div>
-                  <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-mono font-black ${
+                  <span className={`text-[8.5px] px-1.5 py-0.5 rounded font-mono font-medium ${
                     m.moneda === 'BS' ? 'bg-amber-400/20 text-amber-300' : 'bg-emerald-400/20 text-emerald-300'
                   }`}>
                     {m.moneda}
@@ -252,10 +252,10 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
             <button
               type="button"
               onClick={handleAddNewMethod}
-              className="w-full p-2.5 rounded-xl border border-dashed border-amber-400/40 text-amber-300 hover:bg-amber-500/10 text-xs font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer transition-colors mt-1 whitespace-nowrap shrink-0"
+              className="w-full p-2.5 rounded-xl border border-dashed border-amber-400/40 text-amber-300 hover:bg-amber-500/10 text-xs font-medium flex items-center justify-center gap-1.5 cursor-pointer transition-colors mt-1 whitespace-nowrap shrink-0"
             >
               <Plus size={14} />
-              <span>Agregar Método</span>
+              <span>Agregar método</span>
             </button>
           </div>
 
@@ -273,30 +273,30 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
                 {/* Method Name & Currency Header */}
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 bg-[#141926] p-3.5 rounded-2xl border border-white/10">
                   <div className="sm:col-span-6 space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-wider text-amber-300">
-                      Nombre del Método *
+                    <label className="text-[10px] font-medium text-amber-300">
+                      Nombre del método *
                     </label>
                     <input
                       type="text"
                       value={currentMethod.nombre}
                       onChange={(e) => handleUpdateCurrentMethod('nombre', e.target.value)}
                       placeholder="Ej: Pago Móvil, Zinli, USDT..."
-                      className="w-full bg-[#0a0d14] border border-white/15 focus:border-amber-400 p-2.5 rounded-xl text-white text-xs font-bold outline-none"
+                      className="w-full bg-[#0a0d14] border border-white/15 focus:border-amber-400 p-2.5 rounded-xl text-white text-xs font-medium outline-none"
                     />
                   </div>
 
                   <div className="sm:col-span-3 space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                    <label className="text-[10px] font-medium text-slate-300">
                       Moneda
                     </label>
                     <select
                       value={currentMethod.moneda}
                       onChange={(e) => handleUpdateCurrentMethod('moneda', e.target.value as any)}
-                      className="w-full bg-[#0a0d14] border border-white/15 focus:border-amber-400 p-2.5 rounded-xl text-white text-xs font-bold outline-none cursor-pointer"
+                      className="w-full bg-[#0a0d14] border border-white/15 focus:border-amber-400 p-2.5 rounded-xl text-white text-xs font-medium outline-none cursor-pointer"
                     >
                       <option value="BS">Bolívares (Bs)</option>
                       <option value="USD">Dólares (USD)</option>
-                      <option value="AMBAS">Ambas Monedas</option>
+                      <option value="AMBAS">Ambas monedas</option>
                     </select>
                   </div>
 
@@ -304,7 +304,7 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
                     <button
                       type="button"
                       onClick={() => handleDeleteMethod(currentMethod.id)}
-                      className="w-full py-2.5 px-3 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                      className="w-full py-2.5 px-3 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                       title="Eliminar este método de pago"
                     >
                       <Trash2 size={13} />
@@ -315,8 +315,8 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
 
                 {/* Instructions / Note */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                    <span>Instrucciones Breves para el Cliente (Opcional):</span>
+                  <label className="text-[10px] font-medium text-slate-400 flex items-center justify-between">
+                    <span>Instrucciones breves para el cliente (opcional):</span>
                     <span className="text-[9px] text-slate-500">Aparece antes de los datos</span>
                   </label>
                   <input
@@ -331,18 +331,18 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
                 {/* Data Fields Section */}
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
-                    <span className="text-[10.5px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                    <span className="text-[10.5px] font-medium text-amber-300 flex items-center gap-1.5">
                       <CreditCard size={13} />
-                      <span>Datos de la Cuenta / Billetera ({currentMethod.campos.length})</span>
+                      <span>Datos de la cuenta / billetera ({currentMethod.campos.length})</span>
                     </span>
 
                     <button
                       type="button"
                       onClick={handleAddField}
-                      className="text-[10px] bg-amber-400 text-black px-2 py-0.5 rounded-lg font-black uppercase flex items-center gap-1 cursor-pointer hover:bg-amber-300 transition-colors shadow-sm"
+                      className="text-[10px] bg-amber-400 text-black px-2 py-0.5 rounded-lg font-medium flex items-center gap-1 cursor-pointer hover:bg-amber-300 transition-colors shadow-sm"
                     >
                       <Plus size={11} />
-                      <span>Agregar Dato</span>
+                      <span>Agregar dato</span>
                     </button>
                   </div>
 
@@ -437,12 +437,12 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
               type="button"
               onClick={handleSave}
               disabled={isSaving}
-              className="px-5 py-2.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-black font-bold uppercase text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/25 cursor-pointer active:scale-95 transition-all"
+              className="px-5 py-2.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-black font-medium text-xs rounded-xl flex items-center gap-1.5 shadow-lg shadow-amber-500/25 cursor-pointer active:scale-95 transition-all"
             >
               {savedSuccess ? (
                 <>
                   <CheckCircle2 size={15} />
-                  <span>¡Guardado con Éxito!</span>
+                  <span>¡Guardado con éxito!</span>
                 </>
               ) : isSaving ? (
                 <>
@@ -452,7 +452,7 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
               ) : (
                 <>
                   <Save size={15} />
-                  <span>Guardar Métodos y Cuentas</span>
+                  <span>Guardar métodos y cuentas</span>
                 </>
               )}
             </button>
