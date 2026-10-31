@@ -74,6 +74,19 @@ import { PaymentMethodsEditorModal } from './PaymentMethodsEditorModal';
 import { DEFAULT_PAYMENT_METHODS } from '../constants/defaultPaymentMethods';
 import { fetchTasaOficialBCV, getCachedTasaBCV, DEFAULT_TASA_FALLBACK } from '../lib/tasaService';
 
+/**
+ * Formatea un texto a formato "Title Case" o "Sentence Case" para títulos limpios y minimalistas
+ */
+const formatTitleCase = (text?: string): string => {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
 // ============================================================================
 // COMPONENTE: CARRUSEL DE IMÁGENES MULTI-FOTO CON FLECHAS, SWIPE Y MINIATURAS
 // ============================================================================
@@ -1923,25 +1936,21 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               </div>
             </div>
 
-            {/* RIGHT ACTION BUTTON: CARRITO EN NARANJA DE ALTA CONVERSIÓN #FF5200 */}
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* RIGHT ACTION BUTTON: CARRITO MINIMALISTA CON ÍCONO CLARO Y BADGE ROJO */}
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsCartOpen(true)}
-                className="relative flex items-center gap-2.5 bg-[#FF5200] hover:bg-[#e04800] text-white px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs uppercase shadow-xs active:scale-95 transition-all cursor-pointer"
+                className="relative p-2 sm:p-2.5 text-gray-200 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer flex items-center justify-center active:scale-95"
+                title={`Carrito de compras (${cartTotals.totalUnits} ${cartTotals.totalUnits === 1 ? 'artículo' : 'artículos'})`}
+                aria-label={`Ver carrito de compras con ${cartTotals.totalUnits} artículos`}
               >
-                <div className="relative">
-                  <ShoppingCart size={18} className="text-white stroke-[2.5]" />
-                  {cartTotals.totalUnits > 0 && (
-                    <span className="absolute -top-2.5 -right-2.5 min-w-[19px] h-[19px] px-1 rounded-full bg-[#FFC107] text-[#111111] text-[10px] font-bold flex items-center justify-center border-2 border-[#000000] shadow-xs">
-                      {cartTotals.totalUnits}
-                    </span>
-                  )}
-                </div>
-                <div className="text-left hidden sm:block leading-tight">
-                  <span className="text-[10px] block text-white/90 font-bold uppercase tracking-wider">Carrito</span>
-                  <span className="font-bold text-xs text-white">${cartTotals.totalUSD.toFixed(2)} USD</span>
-                </div>
+                <ShoppingCart size={22} className="stroke-[2.2] text-gray-200 hover:text-white" />
+                {cartTotals.totalUnits > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs border border-[#000000] animate-scale-up">
+                    {cartTotals.totalUnits}
+                  </span>
+                )}
               </button>
             </div>
           </div>
@@ -2437,6 +2446,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             {catalogItems.map((item, itemIdx) => {
               const isSelectedByUser = Boolean(selectedVariantMap[item.id]);
               const activeVariant = item.variants.find(v => v.id === selectedVariantMap[item.id]) || item.coverProduct;
+              const hasVariants = Boolean(item.variants && item.variants.length > 1);
               
               // Si el grupo tiene kit (grupo_tiene_kit) y no se ha seleccionado una variante individual, la portada principal es la foto unificada del kit (grupo_kit_imagen)
               const defaultKitCoverUrl = (item.hasKit && item.kitImage) ? formatDirectImageUrl(item.kitImage) : null;
@@ -2454,7 +2464,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               return (
                 <div
                   key={`biker-cat-item-${item.id}-${itemIdx}`}
-                  className="bg-white hover:shadow-lg border border-[#E5E7EB] hover:border-gray-300 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 group relative overflow-hidden"
+                  onClick={() => handleOpenCardQuickView(item)}
+                  className="bg-white hover:shadow-lg border border-[#E5E7EB] hover:border-gray-400 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 group relative overflow-hidden cursor-pointer"
+                  title="Haz clic para ver detalles y agregar al carrito"
                 >
                   {/* Indicador de Stock Crítico (Solo si casi agotado, 5 o menos unidades) */}
                   {currentStock > 0 && currentStock <= 5 && (
@@ -2486,11 +2498,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     <div>
                       {/* Name / Título General: Negro Amazon #111111 */}
                       <h4 
-                        onClick={() => handleOpenCardQuickView(item)}
-                        className="font-bold text-xs sm:text-[13px] text-[#111111] line-clamp-2 hover:text-[#FF5200] transition-colors cursor-pointer leading-tight tracking-tight"
+                        className="font-bold text-xs sm:text-[13px] text-[#111111] line-clamp-2 min-h-[2rem] sm:min-h-[2.3rem] group-hover:text-[#FF5200] transition-colors leading-tight tracking-tight"
                         title={item.title}
                       >
-                        {item.title}
+                        {formatTitleCase(item.title)}
                       </h4>
 
                       {/* Selector Visual de Variantes por Miniaturas */}
@@ -2593,47 +2604,19 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       </div>
                     </div>
 
-                    {/* Action Buttons: AGREGAR (#FFC107) y COMPRAR AHORA */}
-                    <div className="pt-1.5 space-y-1">
+                    {/* Botón CTA Único (Lógica Amazon: "Ver opciones" vs "Agregar al carrito") */}
+                    <div className="pt-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (isSelectedByUser) {
-                            handleAddToCart(activeVariant, 1);
-                          } else {
-                            handleOpenCardQuickView(item);
-                          }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenCardQuickView(item);
                         }}
-                        disabled={!isVariantInStock}
-                        className="w-full py-2 rounded-lg text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 shadow-xs bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                        className="w-full py-2 px-3 rounded-xl bg-[#000000] hover:bg-neutral-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-98 transition-all"
+                        title={hasVariants ? "Ver opciones disponibles" : "Agregar este producto al carrito"}
                       >
-                        {isJustAdded ? (
-                          <>
-                            <Check size={11} className="stroke-[3] text-emerald-800" />
-                            <span>¡Agregado!</span>
-                          </>
-                        ) : (
-                          <>
-                            <ShoppingCart size={11} className="stroke-[2.5]" />
-                            <span>Agregar</span>
-                          </>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isSelectedByUser) {
-                            handleBuyNow(activeVariant);
-                          } else {
-                            handleOpenCardQuickView(item);
-                          }
-                        }}
-                        disabled={!isVariantInStock}
-                        className="w-full py-1.5 bg-amber-50 hover:bg-amber-100/80 border border-amber-300 text-[#111111] rounded-lg text-[9px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <span>Comprar Ahora</span>
-                        <ArrowRight size={9} />
+                        <ShoppingCart size={13} className="text-white stroke-[2.2] shrink-0" />
+                        <span>{hasVariants ? 'Ver opciones' : 'Agregar al carrito'}</span>
                       </button>
                     </div>
                   </div>
@@ -3673,27 +3656,69 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 />
               </div>
 
-              {/* Columna Derecha: Información y Selector Visual de Variantes */}
-              <div className="w-full md:w-1/2 p-5 sm:p-6 flex flex-col justify-between space-y-4 pr-12 sm:pr-14">
+              {/* Columna Derecha: Información y Selector Visual de Variantes (Flexbox con altura mínima y justify-between para evitar layout shift) */}
+              <div 
+                className="w-full md:w-1/2 p-5 sm:p-6 flex flex-col justify-between space-y-4 pr-12 sm:pr-14 min-h-[480px] md:min-h-[520px]"
+                style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+              >
+                {/* Bloque Superior Informativo: 1) Título, 2) Precio (Naranja) y Tasa BCV, 3) Descripción corta */}
                 <div className="space-y-3">
-                  <h3 className="font-extrabold text-lg sm:text-2xl uppercase tracking-tight text-[#111111] leading-tight">
-                    {activeQV.grupo_nombre || activeQV.nombre}
+                  {/* 1) Título Principal en Title Case sin uppercase forzado */}
+                  <h3 className="font-extrabold text-lg sm:text-2xl tracking-tight text-[#111111] leading-tight">
+                    {formatTitleCase(activeQV.grupo_nombre || activeQV.nombre)}
                   </h3>
 
-                  {/* SELECTOR VISUAL DE VARIANTES POR MINIATURAS EN QUICKVIEW */}
+                  {/* 2) Precios: fuente limpia mono en Naranja de Alta Conversión #FF5200 y Tasa BCV */}
+                  <div className="pt-0.5 font-mono">
+                    <div className="text-2xl sm:text-3xl font-black text-[#FF5200] tracking-tight">
+                      ${qvPriceUSD.toFixed(2)} USD
+                    </div>
+                    <p className="text-xs text-[#4B5563] font-semibold mt-0.5">
+                      ≈ Bs. {formatVES(qvPriceBS)} <span className="text-[#4B5563] font-normal text-[10px]">(Tasa BCV: {formatVES(tasaBCV)})</span>
+                    </p>
+                  </div>
+
+                  {/* Stock info con urgencia inteligente (solo si casi agotado, 5 o menos unidades) */}
+                  {activeQV.stock_disponible > 0 && activeQV.stock_disponible <= 5 && (
+                    <div>
+                      <span className="text-[11px] font-bold text-[#FF5722] flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl inline-flex">
+                        <span className="animate-pulse">⏳</span>
+                        <span>Casi agotado, quedan solo {activeQV.stock_disponible}</span>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* 3) Descripción corta con espacio reservado fijo (min-h-[60px]) para prevenir layout shift */}
+                  <div className="min-h-[60px] flex items-start">
+                    <p className="text-xs text-[#555555] leading-relaxed line-clamp-3">
+                      {activeQV.palabras_clave || 'Accesorio y repuesto garantizado de alta calidad seleccionado para motocicletas.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Zona interactiva agrupada en la parte inferior: 4) Variantes, 5) Cantidad, 6) Botón negro principal */}
+                <div 
+                  className="sticky bottom-0 z-50 bg-white pt-3 pb-2 sm:pb-0 border-t border-gray-100 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] sm:shadow-none space-y-3 mt-auto shrink-0"
+                  style={{ position: 'sticky', bottom: 0, zIndex: 50 }}
+                >
+                  {/* 4) Selector de Modelo/Variantes */}
                   {qvVariants.length > 1 && (
-                    <div className="pt-2 pb-2 space-y-2 border-t border-b border-gray-100">
-                      <div className="flex items-center justify-between text-[9.5px]">
-                        <span className="text-[#555555] font-black uppercase flex items-center gap-1.5">
-                          <Boxes size={12} className="text-amber-500" />
-                          <span>{activeQV.es_kit ? 'Kit Seleccionado:' : 'Modelo Seleccionado:'}</span>
-                          <strong className="text-[#111111] text-[11px] underline">
-                            {activeQV.variante_nombre || activeQV.nombre}
-                          </strong>
+                    <div className="space-y-1.5">
+                      {/* Etiqueta unificada "Modelo:" con truncado en una sola línea para evitar saltos por textos largos */}
+                      <div className="flex items-center text-xs min-w-0 overflow-hidden whitespace-nowrap">
+                        <span className="text-[#555555] font-semibold flex items-center gap-1.5 shrink-0">
+                          <Boxes size={13} className="text-amber-500 shrink-0" />
+                          <span>Modelo:</span>
                         </span>
+                        <strong 
+                          className="text-[#111111] font-bold underline truncate ml-1.5 min-w-0"
+                          title={formatTitleCase(activeQV.variante_nombre || activeQV.nombre)}
+                        >
+                          {formatTitleCase(activeQV.variante_nombre || activeQV.nombre)}
+                        </strong>
                       </div>
 
-                      {/* Miniaturas de variantes para QuickView (incluyendo la miniatura del Kit con su respectiva foto) */}
+                      {/* Miniaturas de variantes para QuickView */}
                       <div className="flex items-center gap-2 overflow-x-auto py-1 px-0.5 custom-scrollbar">
                         {qvVariants.map((v) => {
                           const isSelected = activeQV.id === v.id;
@@ -3714,7 +3739,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               }}
                               className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
                                 isSelected
-                                  ? 'border-[#FFC107] ring-2 ring-[#FFC107]/50 scale-105 shadow-sm z-10'
+                                  ? 'border-[#FF5200] ring-2 ring-[#FF5200]/50 scale-105 shadow-sm z-10'
                                   : 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
                               }`}
                               title={v.variante_nombre || (v.es_kit ? 'Kit' : v.nombre)}
@@ -3740,38 +3765,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-                  {/* Precios: fuente limpia mono en Naranja de Alta Conversión #FF5200 */}
-                  <div className="pt-1 font-mono">
-                    <div className="text-2xl sm:text-3xl font-black text-[#FF5200] tracking-tight">
-                      ${qvPriceUSD.toFixed(2)} USD
-                    </div>
-                    <p className="text-xs text-[#4B5563] font-semibold mt-0.5">
-                      ≈ Bs. {formatVES(qvPriceBS)} <span className="text-[#4B5563] font-normal text-[10px]">(Tasa BCV: {formatVES(tasaBCV)})</span>
-                    </p>
-                  </div>
-
-                  {/* Stock info con urgencia inteligente (solo si casi agotado, 5 o menos unidades) */}
-                  {activeQV.stock_disponible > 0 && activeQV.stock_disponible <= 5 && (
-                    <div>
-                      <span className="text-[11px] font-bold text-[#FF5722] flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl inline-flex">
-                        <span className="animate-pulse">⏳</span>
-                        <span>Casi agotado, quedan solo {activeQV.stock_disponible}</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {activeQV.palabras_clave && (
-                    <p className="text-[11px] text-[#555555] pt-1 line-clamp-3">
-                      {activeQV.palabras_clave}
-                    </p>
-                  )}
-                </div>
-
-                {/* Selector de Cantidad y Botones de Acción */}
-                <div className="pt-3 border-t border-gray-100 space-y-2.5">
+                  {/* 5) Selector de Cantidad */}
                   {qvInStock && (
                     <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5">
-                      <span className="text-[11px] font-bold text-[#555555] uppercase tracking-wider">Cantidad:</span>
+                      <span className="text-xs font-bold text-[#555555]">Cantidad:</span>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -3798,7 +3795,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-                  {/* Botón Agregar al Carrito (#FFC107) */}
+                  {/* 6) Botón negro principal (Negro Sólido #000000 con texto en MAYÚSCULAS) */}
                   <button
                     type="button"
                     onClick={() => {
@@ -3807,38 +3804,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       setTimeout(() => setQuickViewAdded(false), 2200);
                     }}
                     disabled={!qvInStock}
-                    className={`w-full py-2.5 rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs transition-all active:scale-98 ${
+                    className={`w-full py-3 rounded-xl font-black uppercase text-xs sm:text-sm tracking-wide flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all active:scale-98 ${
                       quickViewAdded
-                        ? 'bg-emerald-500 text-white shadow-emerald-500/20'
-                        : 'bg-[#FFC107] hover:bg-[#ffb300] text-[#111111] shadow-amber-400/20 disabled:opacity-30'
+                        ? 'bg-emerald-600 text-white shadow-emerald-600/30'
+                        : 'bg-[#000000] hover:bg-neutral-800 text-white shadow-black/20 disabled:opacity-30'
                     }`}
                   >
                     {quickViewAdded ? (
                       <>
-                        <Check size={14} className="stroke-[3]" />
-                        <span>¡Agregado al Carrito ({quickViewQty})!</span>
+                        <Check size={16} className="stroke-[3]" />
+                        <span>¡AGREGADO AL CARRITO ({quickViewQty})!</span>
                       </>
                     ) : (
                       <>
-                        <ShoppingCart size={14} />
-                        <span>Agregar al Carrito</span>
+                        <ShoppingCart size={16} />
+                        <span>AGREGAR AL CARRITO</span>
                       </>
                     )}
-                  </button>
-
-                  {/* Botón Secundario: Ir al Carrito y Finalizar Compra */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuickViewProduct(null);
-                      setQuickViewActiveVariant(null);
-                      setIsCartOpen(true);
-                    }}
-                    className="w-full py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 text-[#FF5200] rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-                  >
-                    <ShoppingCart size={13} className="text-[#FF5200]" />
-                    <span>Ir al Carrito y Finalizar Compra ({cartTotals.totalUnits})</span>
-                    <ArrowRight size={12} className="text-[#FF5200]" />
                   </button>
                 </div>
               </div>
@@ -3887,41 +3869,6 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         </div>
       </footer>
 
-      {/* ========================================================= */}
-      {/* FLOATING CART BUBBLE (Naranja de Alta Conversión #FF5200)   */}
-      {/* ========================================================= */}
-      <aside 
-        className="fixed right-2 sm:right-5 top-1/2 -translate-y-1/2 z-40"
-        aria-label="Acceso Rápido al Carrito"
-      >
-        <button
-          type="button"
-          onClick={() => setIsCartOpen(true)}
-          style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.06)' }}
-          className="group relative flex items-center gap-2.5 sm:gap-3 bg-[#FF5200] hover:bg-[#e04800] text-white pl-3.5 pr-4 sm:pr-5 py-3 rounded-full font-black uppercase border border-white/60 active:scale-95 transition-all cursor-pointer"
-          title="Ir al Carrito de Compras"
-        >
-          <div className="relative flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full bg-white text-[#FF5200] flex items-center justify-center font-black">
-              <ShoppingCart size={17} className="stroke-[2.5]" />
-            </div>
-            {cartTotals.totalUnits > 0 && (
-              <span className="absolute -top-1.5 -right-2 min-w-[20px] h-5 px-1 rounded-full bg-[#FFC107] text-[#111111] text-[10px] font-black flex items-center justify-center border-2 border-white animate-scale-up">
-                {cartTotals.totalUnits}
-              </span>
-            )}
-          </div>
-          
-          <div className="flex flex-col text-left leading-tight">
-            <span className="font-bold tracking-tight text-xs sm:text-sm uppercase text-white whitespace-nowrap">
-              Ir al Carrito
-            </span>
-            <span className="text-[10px] sm:text-[11px] font-mono font-black text-white/90 whitespace-nowrap">
-              {cartTotals.totalUSD > 0 ? `$${cartTotals.totalUSD.toFixed(2)} USD` : '0 productos'}
-            </span>
-          </div>
-        </button>
-      </aside>
 
       {/* Modal para configurar categorías visibles en la tienda online */}
       <StoreCategoriesModal
