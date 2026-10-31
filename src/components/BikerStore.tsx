@@ -459,6 +459,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
+  const [mobileExpandedCategory, setMobileExpandedCategory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'destacados' | 'precio_asc' | 'precio_desc' | 'nombre'>('destacados');
 
   // Cart State (persisted in localStorage for customer convenience)
@@ -761,6 +762,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           setIsTextEditorOpen(false);
         } else if (isPaymentMethodsModalOpen) {
           setIsPaymentMethodsModalOpen(false);
+        } else if (mobileExpandedCategory) {
+          setMobileExpandedCategory(null);
         }
       }
     };
@@ -773,8 +776,22 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     isCartOpen,
     isCategoryModalOpen,
     isTextEditorOpen,
-    isPaymentMethodsModalOpen
+    isPaymentMethodsModalOpen,
+    mobileExpandedCategory
   ]);
+
+  // Cerrar el menú desplegado en móvil al tocar fuera de la barra de categorías
+  useEffect(() => {
+    if (!mobileExpandedCategory) return;
+    const handleDocumentClick = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('#biker-category-header-bar')) {
+        setMobileExpandedCategory(null);
+      }
+    };
+    document.addEventListener('pointerdown', handleDocumentClick);
+    return () => document.removeEventListener('pointerdown', handleDocumentClick);
+  }, [mobileExpandedCategory]);
 
   // Categories list (Deduplicadas canónicamente y filtrando categorías no comerciales, con soporte de múltiples categorías por producto)
   const categories = useMemo(() => {
@@ -1960,133 +1977,237 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           </div>
 
           {/* 5. MENÚ SUPERIOR CON DESPLEGABLE EN HOVER (TIPO SHEIN/AMAZON) */}
-          <div className="bg-[#0e121b] border-t border-white/5 px-3 sm:px-6 py-2 overflow-x-auto md:overflow-visible flex items-center gap-1.5 sm:gap-2 custom-scrollbar relative z-30">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedCategory('all');
-                setSelectedSubcategory(null);
-                setSearchQuery('');
-              }}
-              className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
-                selectedCategory === 'all' && !selectedSubcategory
-                  ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
-                  : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
-              }`}
-            >
-              🔥 Todos los Productos
-            </button>
+          <div id="biker-category-header-bar" className="bg-[#0e121b] border-t border-white/5 relative z-30">
+            {/* Contenedor horizontal de categorías con scroll fluido sin barra forzada */}
+            <div className="px-3 sm:px-6 py-2 overflow-x-auto md:overflow-visible flex items-center gap-1.5 sm:gap-2 no-scrollbar">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategory('all');
+                  setSelectedSubcategory(null);
+                  setSearchQuery('');
+                  setMobileExpandedCategory(null);
+                }}
+                className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+                  selectedCategory === 'all' && !selectedSubcategory
+                    ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
+                    : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
+                }`}
+              >
+                🔥 Todos los Productos
+              </button>
 
-            {categories.map((cat, catIdx) => {
+              {categories.map((cat, catIdx) => {
+                const isCatSelected = getCategoryKey(selectedCategory) === getCategoryKey(cat);
+                const rawSubs = subcategoriesByCategory[cat] || [];
+                // Filtrar estrictamente cualquier subcategoría que coincida con la categoría general
+                const subs = rawSubs.filter(
+                  (s) =>
+                    getCategoryKey(s.name) !== getCategoryKey(cat) &&
+                    normalizeSearch(s.name) !== normalizeSearch(cat) &&
+                    s.name.toLowerCase().trim() !== cat.toLowerCase().trim()
+                );
+                const hasSubs = subs.length > 0;
+                const isHovered = hoveredCategory === cat;
+                const isMobileOpen = mobileExpandedCategory === cat;
+                const isExpanded = isHovered || isMobileOpen;
+
+                return (
+                  <div
+                    key={`biker-cat-wrap-${cat}-${catIdx}`}
+                    className="relative group shrink-0"
+                    onMouseEnter={() => setHoveredCategory(cat)}
+                    onMouseLeave={() => setHoveredCategory(null)}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (hasSubs) {
+                          if (mobileExpandedCategory === cat) {
+                            setMobileExpandedCategory(null);
+                          } else {
+                            setSelectedCategory(cat);
+                            setSelectedSubcategory(null);
+                            setMobileExpandedCategory(cat);
+                          }
+                        } else {
+                          setSelectedCategory(cat);
+                          setSelectedSubcategory(null);
+                          setMobileExpandedCategory(null);
+                        }
+                        setSearchQuery('');
+                      }}
+                      className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 ${
+                        isCatSelected
+                          ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
+                          : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
+                      }`}
+                    >
+                      <span>{cat}</span>
+                      {hasSubs && (
+                        <ChevronDown 
+                          size={11} 
+                          className={`transition-transform duration-200 ${
+                            isExpanded ? 'rotate-180' : ''
+                          } ${isCatSelected ? 'text-black' : 'text-slate-400'}`} 
+                        />
+                      )}
+                    </button>
+
+                    {/* DESKTOP DROPDOWN: Flota bajo el botón en pantallas medianas y superiores sin scroll interno */}
+                    {hasSubs && (
+                      <div
+                        className={`hidden md:block absolute top-full left-0 pt-1.5 min-w-[210px] z-50 transition-all duration-200 ${
+                          isHovered ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-1 pointer-events-none'
+                        }`}
+                      >
+                        <div className="bg-[#0b0f19]/95 backdrop-blur-xl border border-amber-500/30 rounded-2xl p-2 shadow-2xl shadow-black/90 space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCategory(cat);
+                              setSelectedSubcategory(null);
+                              setSearchQuery('');
+                              setHoveredCategory(null);
+                            }}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
+                              isCatSelected && !selectedSubcategory
+                                ? 'bg-amber-400/20 text-amber-300 font-black'
+                                : 'text-slate-300 hover:text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <span>Ver todo en {cat}</span>
+                            <ArrowRight size={11} className="text-amber-400" />
+                          </button>
+
+                          <div className="border-t border-white/10 my-1" />
+
+                          {/* Lista sin max-h-56 ni scrollbar interno forzado */}
+                          <div className="space-y-0.5">
+                            {subs.map((subItem) => {
+                              const isSubSelected = isCatSelected && (
+                                selectedSubcategory?.toLowerCase() === subItem.name.toLowerCase() ||
+                                getSubcategoryKey(selectedSubcategory || '') === getSubcategoryKey(subItem.name)
+                              );
+
+                              return (
+                                <button
+                                  key={`sub-${cat}-${subItem.name}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCategory(cat);
+                                    setSelectedSubcategory(subItem.name);
+                                    setSearchQuery('');
+                                    setHoveredCategory(null);
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center justify-between transition-all cursor-pointer ${
+                                    isSubSelected
+                                      ? 'bg-amber-400 text-black font-black shadow-md shadow-amber-400/20'
+                                      : 'text-slate-300 hover:text-white hover:bg-white/5'
+                                  }`}
+                                >
+                                  <span className="truncate">{subItem.name}</span>
+                                  <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-md ${
+                                    isSubSelected ? 'bg-black/20 text-black' : 'bg-white/5 text-slate-400'
+                                  }`}>
+                                    {subItem.count}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* MÓVIL: DESPLIEGUE FLUIDO SOBRE LA SECCIÓN BLANCA INFERIOR (SIN SCROLL INTERNO FORZADO) */}
+            {mobileExpandedCategory && (() => {
+              const cat = mobileExpandedCategory;
               const isCatSelected = getCategoryKey(selectedCategory) === getCategoryKey(cat);
               const rawSubs = subcategoriesByCategory[cat] || [];
-              // Filtrar estrictamente cualquier subcategoría que coincida con la categoría general
               const subs = rawSubs.filter(
                 (s) =>
                   getCategoryKey(s.name) !== getCategoryKey(cat) &&
                   normalizeSearch(s.name) !== normalizeSearch(cat) &&
                   s.name.toLowerCase().trim() !== cat.toLowerCase().trim()
               );
-              const hasSubs = subs.length > 0;
-              const isHovered = hoveredCategory === cat;
+              if (subs.length === 0) return null;
 
               return (
-                <div
-                  key={`biker-cat-wrap-${cat}-${catIdx}`}
-                  className="relative group shrink-0"
-                  onMouseEnter={() => setHoveredCategory(cat)}
-                  onMouseLeave={() => setHoveredCategory(null)}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCategory(cat);
-                      setSelectedSubcategory(null);
-                      setSearchQuery('');
-                    }}
-                    className={`px-3 py-1 rounded-xl text-[10.5px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer flex items-center gap-1 ${
-                      isCatSelected
-                        ? 'bg-amber-400 text-black shadow-md shadow-amber-400/20 font-black'
-                        : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10'
-                    }`}
-                  >
-                    <span>{cat}</span>
-                    {hasSubs && (
-                      <ChevronDown 
-                        size={11} 
-                        className={`transition-transform duration-200 ${
-                          isHovered ? 'rotate-180' : ''
-                        } ${isCatSelected ? 'text-black' : 'text-slate-400'}`} 
-                      />
-                    )}
-                  </button>
-
-                  {hasSubs && (
-                    <div
-                      className={`absolute top-full left-0 pt-1.5 min-w-[210px] z-50 transition-all duration-200 ${
-                        isHovered ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-1 pointer-events-none'
-                      }`}
-                    >
-                      <div className="bg-[#0b0f19]/95 backdrop-blur-xl border border-amber-500/30 rounded-2xl p-2 shadow-2xl shadow-black/90 space-y-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedCategory(cat);
-                            setSelectedSubcategory(null);
-                            setSearchQuery('');
-                            setHoveredCategory(null);
-                          }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
-                            isCatSelected && !selectedSubcategory
-                              ? 'bg-amber-400/20 text-amber-300 font-black'
-                              : 'text-slate-300 hover:text-white hover:bg-white/10'
-                          }`}
-                        >
-                          <span>Ver todo</span>
-                          <ArrowRight size={11} className="text-amber-400" />
-                        </button>
-
-                        <div className="border-t border-white/10 my-1" />
-
-                        <div className="max-h-56 overflow-y-auto custom-scrollbar space-y-0.5">
-                          {subs.map((subItem) => {
-                            const isSubSelected = isCatSelected && (
-                              selectedSubcategory?.toLowerCase() === subItem.name.toLowerCase() ||
-                              getSubcategoryKey(selectedSubcategory || '') === getSubcategoryKey(subItem.name)
-                            );
-
-                            return (
-                              <button
-                                key={`sub-${cat}-${subItem.name}`}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedCategory(cat);
-                                  setSelectedSubcategory(subItem.name);
-                                  setSearchQuery('');
-                                  setHoveredCategory(null);
-                                }}
-                                className={`w-full text-left px-2.5 py-1.5 rounded-xl text-[10.5px] font-bold flex items-center justify-between transition-all cursor-pointer ${
-                                  isSubSelected
-                                    ? 'bg-amber-400 text-black font-black shadow-md shadow-amber-400/20'
-                                    : 'text-slate-300 hover:text-white hover:bg-white/5'
-                                }`}
-                              >
-                                <span className="truncate">{subItem.name}</span>
-                                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-md ${
-                                  isSubSelected ? 'bg-black/20 text-black' : 'bg-white/5 text-slate-400'
-                                }`}>
-                                  {subItem.count}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                <div className="md:hidden absolute top-full left-0 right-0 px-2.5 pt-1 pb-2 z-50 animate-fade-in pointer-events-auto">
+                  <div className="bg-[#0b0f19]/98 backdrop-blur-2xl border border-amber-500/35 rounded-2xl p-2.5 shadow-2xl shadow-black/95 space-y-2">
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCategory(cat);
+                          setSelectedSubcategory(null);
+                          setSearchQuery('');
+                          setMobileExpandedCategory(null);
+                        }}
+                        className={`flex-1 text-left py-1 rounded-xl text-[11px] font-black uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
+                          isCatSelected && !selectedSubcategory
+                            ? 'text-amber-300'
+                            : 'text-slate-200 hover:text-white'
+                        }`}
+                      >
+                        <span>Ver Todo en {cat}</span>
+                        <ArrowRight size={13} className="text-amber-400 shrink-0" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMobileExpandedCategory(null)}
+                        className="w-6 h-6 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer ml-2 shrink-0 transition-colors"
+                        aria-label="Cerrar subcategorías"
+                      >
+                        <X size={13} strokeWidth={2.5} />
+                      </button>
                     </div>
-                  )}
+
+                    <div className="border-t border-white/10" />
+
+                    {/* Despliegue de subcategorías en rejilla limpia de 2 columnas sin scroll interno */}
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {subs.map((subItem) => {
+                        const isSubSelected = isCatSelected && (
+                          selectedSubcategory?.toLowerCase() === subItem.name.toLowerCase() ||
+                          getSubcategoryKey(selectedSubcategory || '') === getSubcategoryKey(subItem.name)
+                        );
+
+                        return (
+                          <button
+                            key={`mob-sub-${cat}-${subItem.name}`}
+                            type="button"
+                            onClick={() => {
+                              setSelectedCategory(cat);
+                              setSelectedSubcategory(subItem.name);
+                              setSearchQuery('');
+                              setMobileExpandedCategory(null);
+                            }}
+                            className={`w-full text-left p-2 rounded-xl text-[10.5px] font-bold flex items-center justify-between gap-1 transition-all cursor-pointer ${
+                              isSubSelected
+                                ? 'bg-amber-400 text-black font-black shadow-md shadow-amber-400/20'
+                                : 'bg-white/5 text-slate-200 hover:text-white hover:bg-white/10 border border-white/5'
+                            }`}
+                          >
+                            <span className="truncate">{subItem.name}</span>
+                            <span className={`text-[8.5px] font-mono font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+                              isSubSelected ? 'bg-black/25 text-black' : 'bg-white/10 text-slate-400'
+                            }`}>
+                              {subItem.count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               );
-            })}
+            })()}
           </div>
         </header>
       </div>
