@@ -45,7 +45,8 @@ import {
   Edit3,
   Boxes,
   MessageCircle,
-  Menu
+  Menu,
+  Maximize2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, addDoc, writeBatch, increment } from 'firebase/firestore';
@@ -81,11 +82,25 @@ import { fetchTasaOficialBCV, getCachedTasaBCV, DEFAULT_TASA_FALLBACK } from '..
  */
 const formatTitleCase = (text?: string): string => {
   if (!text) return '';
-  return text
-    .toLowerCase()
+  const trimmed = text.trim();
+  if (/^usdt/i.test(trimmed)) {
+    return 'USDT (Tether USD)';
+  }
+  if (/^zinli/i.test(trimmed)) {
+    return 'Zinli';
+  }
+  return trimmed
     .split(' ')
     .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (lower === 'usdt') return 'USDT';
+      if (lower === 'zinli') return 'Zinli';
+      if (lower === 'usd') return 'USD';
+      if (lower === 'bcv') return 'BCV';
+      if (lower === 'rif') return 'RIF';
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
     .join(' ');
 };
 
@@ -110,13 +125,37 @@ const formatCategorySentenceCase = (text?: string): string => {
 };
 
 /**
+ * Componente SVG para icono vectorial de WhatsApp (evita imágenes rotas o bordes invertidos)
+ */
+const WhatsAppVectorIcon: React.FC<{ className?: string; size?: number }> = ({ className = "w-4 h-4", size = 16 }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    width={size} 
+    height={size} 
+    fill="currentColor" 
+    className={className} 
+    aria-hidden="true"
+  >
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.89-9.888 9.89m8.415-18.303A11.893 11.893 0 0012.046 0C5.467 0 .11 5.355.107 11.936c0 2.102.548 4.155 1.589 5.961L0 24l6.335-1.662a11.87 11.87 0 005.707 1.458h.005c6.578 0 11.934-5.356 11.937-11.938a11.85 11.85 0 00-3.484-8.441z"/>
+  </svg>
+);
+
+/**
  * Formatea valores bancarios para erradicar mayúsculas sostenidas ("MERCANTIL" -> "Mercantil", "EDGAR CONTRERAS" -> "Edgar Contreras")
- * preservando números de cuenta, teléfonos, correos y prefijos de cédula/RIF (V- / J-).
+ * preservando números de cuenta, teléfonos, correos y prefijos de cédula/RIF (V- / J-) y nombres de marcas (Zinli, USDT).
  */
 const formatBankValue = (value?: string): string => {
   if (!value) return '';
   const trimmed = value.trim();
   if (!trimmed) return '';
+
+  // Específico para USDT y Zinli
+  if (/^usdt\s*\(\s*tether\s*usd\s*\)$/i.test(trimmed) || /^usdt$/i.test(trimmed)) {
+    return 'USDT (Tether USD)';
+  }
+  if (/^zinli$/i.test(trimmed)) {
+    return 'Zinli';
+  }
 
   // Si es un número puro, teléfono, cuenta bancaria o formato numérico con guiones/puntos: no alterar
   if (/^[\d\s\-().+]+$/.test(trimmed)) {
@@ -151,10 +190,16 @@ const formatBankValue = (value?: string): string => {
   // Para nombres de personas, bancos o textos generales ("MERCANTIL", "EDGAR CONTRERAS")
   const lowercaseWords = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'en', 'y', 'o', 'por', 'a']);
   return trimmed
-    .toLowerCase()
     .split(' ')
     .filter(Boolean)
     .map((word, index) => {
+      const lower = word.toLowerCase();
+      if (lower === 'zinli') return 'Zinli';
+      if (lower === 'usdt') return 'USDT';
+      if (lower === 'usd') return 'USD';
+      if (lower === 'tether') return 'Tether';
+      if (lower === 'bcv') return 'BCV';
+      if (lower === 'rif') return 'RIF';
       // Si la palabra es un prefijo de cédula pegado a números (ej. "V-12345")
       if (/^[vVeEjJgG]-?\d+$/i.test(word)) {
         return word.charAt(0).toUpperCase() + '-' + word.slice(1).replace(/^-/, '');
@@ -162,25 +207,41 @@ const formatBankValue = (value?: string): string => {
       if (/^\d+$/.test(word)) {
         return word;
       }
-      if (index > 0 && lowercaseWords.has(word)) {
-        return word;
+      if (index > 0 && lowercaseWords.has(lower)) {
+        return lower;
       }
-      return word.charAt(0).toUpperCase() + word.slice(1);
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
     .join(' ');
 };
 
 /**
  * Formatea y normaliza las etiquetas de los datos bancarios eliminando mayúsculas sostenidas
- * ("CEDULA V:" -> "Cédula", "BANCO:" -> "Banco") y corrigiendo textos desalineados ("Cta Banesco:" -> "Número de cuenta").
+ * ("CEDULA V:" -> "Cédula", "BANCO:" -> "Banco") y acortando etiquetas para evitar truncamiento
+ * ("Número de cuenta:" -> "Cuenta:", "Correo zinli:" -> "Correo Zinli:").
  */
 const formatBankLabel = (rawLabel?: string): string => {
   if (!rawLabel) return '';
   let label = rawLabel.replace(/:+$/, '').trim();
 
-  // Corregir bug si la etiqueta dice "Cta Banesco" o similar
-  if (/^(cta|cuenta)\s+banesco$/i.test(label) || /^(cta|cuenta)\s+banco$/i.test(label) || /^cta\b/i.test(label)) {
-    return 'Número de cuenta';
+  // Corregir número de cuenta / Cta Banesco a formato compacto ("Cuenta") para evitar truncado con puntos suspensivos
+  if (
+    /^(cta|cuenta)\s+banesco$/i.test(label) || 
+    /^(cta|cuenta)\s+banco$/i.test(label) || 
+    /^cta\b/i.test(label) || 
+    /^n[uú]mero\s+de\s+cuenta$/i.test(label) ||
+    /^num(ero)?\s+cuenta$/i.test(label) ||
+    /^cuenta$/i.test(label)
+  ) {
+    return 'Cuenta';
+  }
+
+  // Corregir marcas y siglas para evitar "Correo zinli" o "Usdt (tether usd)"
+  if (/^correo\s*zinli$/i.test(label) || /^zinli$/i.test(label)) {
+    return 'Correo Zinli';
+  }
+  if (/^usdt(\s*\(.*\))?$/i.test(label) || /^red\s*usdt$/i.test(label) || /tether/i.test(label)) {
+    return 'USDT (Tether USD)';
   }
 
   // Normalizar variaciones de Cédula
@@ -206,8 +267,21 @@ const formatBankLabel = (rawLabel?: string): string => {
     return 'Teléfono';
   }
 
-  // Capitalización simple para cualquier otra etiqueta
-  return label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
+  // Capitalización de marcas y palabras para cualquier otra etiqueta
+  return label
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (lower === 'zinli') return 'Zinli';
+      if (lower === 'usdt') return 'USDT';
+      if (lower === 'usd') return 'USD';
+      if (lower === 'tether') return 'Tether';
+      if (lower === 'bcv') return 'BCV';
+      if (lower === 'rif') return 'RIF';
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
 };
 
 // ============================================================================
@@ -219,9 +293,11 @@ interface StoreImageCarouselProps {
   onIndexChange: (newIndex: number) => void;
   altText: string;
   onOpenDetail?: () => void;
+  onImageClick?: () => void;
   className?: string;
   imageClassName?: string;
   showThumbnails?: boolean;
+  containerClassName?: string;
 }
 
 export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
@@ -230,9 +306,11 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
   onIndexChange,
   altText,
   onOpenDetail,
+  onImageClick,
   className = "h-32 sm:h-36 md:h-40 max-h-40 w-full",
   imageClassName,
   showThumbnails = true,
+  containerClassName,
 }) => {
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [touchEndX, setTouchEndX] = useState<number | null>(null);
@@ -289,14 +367,22 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
   };
 
   return (
-    <div className="w-full flex flex-col space-y-1 select-none">
+    <div className={`w-full flex flex-col select-none ${containerClassName || 'space-y-1'}`}>
       {/* Contenedor Principal de la Imagen */}
       <div
-        onClick={onOpenDetail}
+        onClick={() => {
+          if (onImageClick) {
+            onImageClick();
+          } else if (onOpenDetail) {
+            onOpenDetail();
+          }
+        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className={`relative w-full ${className} bg-[#FAFAFA] rounded-sm overflow-hidden flex items-center justify-center cursor-pointer group/img transition-transform`}
+        className={`relative w-full overflow-hidden flex items-center justify-center cursor-pointer group/img transition-transform ${
+          className.includes('bg-') ? '' : 'bg-[#FAFAFA]'
+        } ${className.includes('rounded') ? className : `rounded-sm ${className}`}`}
       >
         {currentImage ? (
           <img
@@ -315,12 +401,28 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
         )}
 
         {/* Indicador flotante Ver Detalle al pasar el cursor */}
-        {onOpenDetail && (
+        {onOpenDetail && !onImageClick && (
           <div className="absolute inset-0 bg-black/25 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
             <span className="px-2.5 py-1 bg-[#111111]/90 text-white rounded-md text-[8.5px] font-medium flex items-center gap-1 shadow-sm">
               <Eye size={11} className="text-[#FFC107]" /> Ver detalle
             </span>
           </div>
+        )}
+
+        {/* Indicador flotante de Pantalla Completa / Ampliar cuando se pasa onImageClick */}
+        {onImageClick && currentImage && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onImageClick();
+            }}
+            aria-label="Ver a pantalla completa"
+            className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/85 text-white p-1.5 sm:px-2 sm:py-1 rounded-md shadow-xs opacity-80 sm:opacity-0 group-hover/img:opacity-100 transition-all flex items-center gap-1 z-10 cursor-pointer backdrop-blur-xs"
+          >
+            <Maximize2 size={13} strokeWidth={2} />
+            <span className="text-[10px] font-medium hidden sm:inline">Ampliar</span>
+          </button>
         )}
 
         {/* Contador de Fotos (ej: 1/4) - Solo si hay más de 1 foto */}
@@ -355,37 +457,41 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
         )}
       </div>
 
-      {/* Mini-Carrusel de Galería (SOLO para fotos extra de la misma variante, OCULTO si solo tiene 1 foto) */}
-      {showThumbnails && validImages.length > 1 && (
-        <div className="flex items-center gap-1 overflow-x-auto py-0.5 px-0.5 custom-scrollbar">
-          {validImages.map((thumbUrl, tIdx) => {
-            const isSelectedThumb = tIdx === safeIndex;
-            return (
-              <button
-                key={`thumb-${tIdx}-${thumbUrl.slice(-15)}`}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onIndexChange(tIdx);
-                }}
-                className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 ${
-                  isSelectedThumb
-                    ? 'border-[#FFC107] ring-1 ring-[#FFC107] scale-105 opacity-100 shadow-xs'
-                    : 'border-gray-200 opacity-60 hover:opacity-100 hover:border-gray-400'
-                }`}
-                title={`Ver foto ${tIdx + 1}`}
-              >
-                <img
-                  src={thumbUrl}
-                  alt={`Miniatura ${tIdx + 1}`}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
+      {/* Mini-Carrusel de Galería con Altura Fija de 64px (h-16 shrink-0) para Zero CLS */}
+      {showThumbnails && (
+        <div className="h-16 shrink-0 flex items-center gap-1.5 overflow-x-auto py-1 px-3 md:px-0.5 custom-scrollbar">
+          {validImages.length > 0 ? (
+            validImages.map((thumbUrl, tIdx) => {
+              const isSelectedThumb = tIdx === safeIndex;
+              return (
+                <button
+                  key={`thumb-${tIdx}-${thumbUrl.slice(-15)}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onIndexChange(tIdx);
                   }}
-                />
-              </button>
-            );
-          })}
+                  className={`w-11 h-11 sm:w-12 sm:h-12 rounded-md overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 ${
+                    isSelectedThumb
+                      ? 'border-[#FF5200] ring-1 ring-[#FF5200] scale-105 opacity-100 shadow-xs'
+                      : 'border-gray-200 opacity-60 hover:opacity-100 hover:border-gray-400'
+                  }`}
+                  title={`Ver foto ${tIdx + 1}`}
+                >
+                  <img
+                    src={thumbUrl}
+                    alt={`Miniatura ${tIdx + 1}`}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
+                    }}
+                  />
+                </button>
+              );
+            })
+          ) : (
+            <div className="h-11 sm:h-12 w-full" aria-hidden="true" />
+          )}
         </div>
       )}
     </div>
@@ -393,22 +499,36 @@ export const StoreImageCarousel: React.FC<StoreImageCarouselProps> = ({
 };
 
 // Helper para reunir las fotos disponibles garantizando exclusividad absoluta:
+// - Al abrir la página (modo portada): muestra prioritariamente la foto asignada como portada en la base de datos (grupo_imagen_portada).
 // - Si la variante es la opción Kit (es_kit): muestra la foto unificada del kit (grupo_kit_imagen).
-// - Si es una variante individual: reúne las fotos de esa variante y EXCLUYE estrictamente la foto unificada del kit y portadas generales ajenas.
+// - Si es una variante individual: reúne las fotos de esa variante y EXCLUYE estrictamente fotos ajenas.
 const getItemImages = (
   item: {
     isGroup: boolean;
     coverProduct: Producto;
+    coverImage?: string;
     variants: Producto[];
     hasKit?: boolean;
     kitImage?: string;
   },
-  activeVariant: Producto
+  activeVariant: Producto,
+  isCoverView: boolean = false
 ): string[] => {
   // 1. Obtener identificadores y URLs de la foto unificada del kit si existe
   const rawKitImg = item.kitImage || activeVariant.grupo_kit_imagen || item.coverProduct?.grupo_kit_imagen || '';
   const kitDirectUrl = rawKitImg ? formatDirectImageUrl(rawKitImg) : '';
   const kitDriveId = rawKitImg ? (extractDriveFileId(rawKitImg) || (!rawKitImg.includes('/') ? rawKitImg : '')) : '';
+
+  // CASO 0: Modo Portada Inicial (al abrir la página para productos con variantes)
+  // Cuando el usuario aún no ha seleccionado una variante específica, se prioriza estrictamente la foto asignada como portada en la base de datos
+  if (item.isGroup && item.coverImage && isCoverView) {
+    const directCover = formatDirectImageUrl(item.coverImage);
+    if (directCover) {
+      // Reúne también las fotos secundarias de la portada base para el carrusel sin duplicados
+      const baseImages = getItemImages(item, activeVariant, false);
+      return [directCover, ...baseImages.filter(img => img !== directCover)];
+    }
+  }
 
   // CASO A: La variante activa ES la opción Kit
   if (activeVariant.es_kit) {
@@ -638,12 +758,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [clienteTelefono, setClienteTelefono] = useState('');
   const [direccionAgencia, setDireccionAgencia] = useState('');
   const [agenciaSeleccionada, setAgenciaSeleccionada] = useState<'MRW' | 'Zoom' | 'Tealca' | 'Domesa' | 'Otra'>('MRW');
+  const [metodoEntrega, setMetodoEntrega] = useState<'retiro' | 'envio'>('envio');
   const [metodoPago, setMetodoPago] = useState<string>('Pago Móvil');
   const [notasCliente, setNotasCliente] = useState('');
   
   // Payment mode: 'whatsapp' (manual coordination) or 'comprobante' (instant upload & automatic entry)
   const [tipoConfirmacion, setTipoConfirmacion] = useState<'whatsapp' | 'comprobante'>('comprobante');
-  const [checkoutStep, setCheckoutStep] = useState<1 | 2>(1);
+  const [checkoutStep, setCheckoutStep] = useState<0 | 1 | 2>(0);
   const [comprobanteUrl, setComprobanteUrl] = useState<string | null>(null);
   const [comprobanteFileName, setComprobanteFileName] = useState<string | null>(null);
   const [referenciaPago, setReferenciaPago] = useState<string>('');
@@ -655,7 +776,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(() => {
     try {
       const saved = localStorage.getItem('biker_store_payment_methods');
-      return saved ? JSON.parse(saved) : DEFAULT_PAYMENT_METHODS;
+      const parsed = saved ? JSON.parse(saved) : DEFAULT_PAYMENT_METHODS;
+      const list = Array.isArray(parsed) ? parsed : DEFAULT_PAYMENT_METHODS;
+      return list.filter((m: PaymentMethodConfig) => m.id !== 'zinli' && m.nombre?.toLowerCase() !== 'zinli');
     } catch {
       return DEFAULT_PAYMENT_METHODS;
     }
@@ -677,6 +800,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [quickViewImageIndex, setQuickViewImageIndex] = useState<number>(0);
   const [quickViewQty, setQuickViewQty] = useState<number>(1);
   const [quickViewAdded, setQuickViewAdded] = useState<boolean>(false);
+  const [quickViewUserSelectedVariant, setQuickViewUserSelectedVariant] = useState<boolean>(false);
+
+  // Estados para Visor de Imágenes a Pantalla Completa (Lightbox)
+  const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
+  const [lightboxImageIndex, setLightboxImageIndex] = useState<number>(0);
+  const [lightboxTouchStartX, setLightboxTouchStartX] = useState<number | null>(null);
+  const [lightboxTouchEndX, setLightboxTouchEndX] = useState<number | null>(null);
 
   // Estados para Animación Espacial "Fly-to-Cart" y Dropdown Minimalista de Confirmación
   const [flyingItem, setFlyingItem] = useState<{
@@ -712,14 +842,19 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     // 1. Forzar la reaparición inmediata del Header para que el carrito esté 100% visible
     setIsHeaderVisible(true);
 
-    const modalCartBtn = document.getElementById('modal-cart-button');
-    const modalCartBtnDesktop = document.getElementById('modal-cart-button-desktop');
-    const activeModalCart = (modalCartBtn && modalCartBtn.offsetParent !== null)
-      ? modalCartBtn
-      : (modalCartBtnDesktop && modalCartBtnDesktop.offsetParent !== null ? modalCartBtnDesktop : null);
-    const cartBtn = activeModalCart
-      ? activeModalCart
-      : ((window.innerWidth < 768 ? document.getElementById('header-cart-button-mobile') : document.getElementById('header-cart-button')) || document.getElementById('header-cart-button') || document.getElementById('header-cart-button-mobile'));
+    const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768;
+
+    // En Desktop, el destino apunta dinámicamente SIEMPRE al ícono del carrito en el Header principal de la página
+    let cartBtn: HTMLElement | null = null;
+    if (isDesktop) {
+      cartBtn = document.getElementById('header-cart-button');
+    } else {
+      const modalCartBtn = document.getElementById('modal-cart-button');
+      cartBtn = (modalCartBtn && modalCartBtn.offsetParent !== null)
+        ? modalCartBtn
+        : (document.getElementById('header-cart-button-mobile') || document.getElementById('header-cart-button'));
+    }
+
     const cartRect = cartBtn
       ? cartBtn.getBoundingClientRect()
       : { left: window.innerWidth - 50, top: 20, width: 36, height: 36 };
@@ -772,15 +907,22 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       setIsCartBouncing(true);
       setTimeout(() => setIsCartBouncing(false), 450);
 
-      // Calcular posición anclada exacta debajo del botón del carrito visible (Modal o Header)
-      const currentModalCart = (document.getElementById('modal-cart-button') && document.getElementById('modal-cart-button')!.offsetParent !== null)
-        ? document.getElementById('modal-cart-button')
-        : ((document.getElementById('modal-cart-button-desktop') && document.getElementById('modal-cart-button-desktop')!.offsetParent !== null)
-            ? document.getElementById('modal-cart-button-desktop')
-            : null);
-      const currentCartBtn = currentModalCart
-        ? currentModalCart
-        : ((window.innerWidth < 768 ? document.getElementById('header-cart-button-mobile') : document.getElementById('header-cart-button')) || document.getElementById('header-cart-button') || document.getElementById('header-cart-button-mobile'));
+      // Flujo Inmersivo Desktop: Si el producto se agrega desde el modal QuickView,
+      // cerrar automáticamente el modal y abrir el panel lateral (drawer) del carrito
+      if (isDesktop && quickViewProduct) {
+        closeQuickView();
+        setIsCartOpen(true);
+        setAddedHeaderDropdown(null);
+        return;
+      }
+
+      // En catálogo o móvil: Desplegar dropdown de confirmación anclado
+      const currentCartBtn = isDesktop
+        ? document.getElementById('header-cart-button')
+        : ((document.getElementById('modal-cart-button') && document.getElementById('modal-cart-button')!.offsetParent !== null)
+            ? document.getElementById('modal-cart-button')
+            : (document.getElementById('header-cart-button-mobile') || document.getElementById('header-cart-button')));
+
       if (currentCartBtn) {
         const cRect = currentCartBtn.getBoundingClientRect();
         setDropdownPosition({
@@ -994,9 +1136,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         if (snap.exists()) {
           const data = snap.data();
           if (data && Array.isArray(data.methods) && data.methods.length > 0) {
-            setPaymentMethods(data.methods);
+            const filtered = data.methods.filter((m: any) => m.id !== 'zinli' && m.nombre?.toLowerCase() !== 'zinli');
+            setPaymentMethods(filtered);
             try {
-              localStorage.setItem('biker_store_payment_methods', JSON.stringify(data.methods));
+              localStorage.setItem('biker_store_payment_methods', JSON.stringify(filtered));
             } catch {}
           }
         }
@@ -1010,11 +1153,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   }, []);
 
   const handleSavePaymentMethods = async (updatedMethods: PaymentMethodConfig[]) => {
-    setPaymentMethods(updatedMethods);
+    const filtered = updatedMethods.filter(m => m.id !== 'zinli' && m.nombre?.toLowerCase() !== 'zinli');
+    setPaymentMethods(filtered);
     try {
-      localStorage.setItem('biker_store_payment_methods', JSON.stringify(updatedMethods));
+      localStorage.setItem('biker_store_payment_methods', JSON.stringify(filtered));
       await setDoc(doc(db, 'configuracion', 'tienda_metodos_pago'), {
-        methods: updatedMethods,
+        methods: filtered,
         updatedAt: new Date().toISOString()
       }, { merge: true });
     } catch (e) {
@@ -1024,22 +1168,38 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   };
 
   const activePaymentMethods = useMemo(() => {
-    const active = paymentMethods.filter(m => m.activo !== false);
-    return active.length > 0 ? active : DEFAULT_PAYMENT_METHODS;
+    const raw = paymentMethods.length > 0 ? paymentMethods : DEFAULT_PAYMENT_METHODS;
+    return raw.filter(m => m.activo !== false && m.id !== 'zinli' && m.nombre?.toLowerCase() !== 'zinli');
   }, [paymentMethods]);
 
-  // Ensure metodoPago matches an active method
+  // Lista de métodos disponibles según el tipo de entrega (Retiro local incluye 'Pago en tienda')
+  const availablePaymentMethods = useMemo(() => {
+    if (metodoEntrega === 'retiro') {
+      const storeMethod: PaymentMethodConfig = {
+        id: 'pago_tienda_local',
+        nombre: 'Pago en tienda',
+        moneda: 'AMBAS',
+        instrucciones: 'Paga en efectivo o punto de venta al retirar tus productos en Moto Cristo.',
+        activo: true,
+        campos: []
+      };
+      return [storeMethod, ...activePaymentMethods];
+    }
+    return activePaymentMethods;
+  }, [metodoEntrega, activePaymentMethods]);
+
+  // Ensure metodoPago matches an active available method
   useEffect(() => {
-    if (activePaymentMethods.length > 0) {
-      if (!activePaymentMethods.some(m => m.nombre.toLowerCase() === metodoPago.toLowerCase())) {
-        setMetodoPago(activePaymentMethods[0].nombre);
+    if (availablePaymentMethods.length > 0) {
+      if (!availablePaymentMethods.some(m => m.nombre.toLowerCase() === metodoPago.toLowerCase())) {
+        setMetodoPago(availablePaymentMethods[0].nombre);
       }
     }
-  }, [activePaymentMethods, metodoPago]);
+  }, [availablePaymentMethods, metodoPago]);
 
   const selectedPaymentMethod = useMemo(() => {
-    return activePaymentMethods.find(m => m.nombre.toLowerCase() === metodoPago.toLowerCase()) || activePaymentMethods[0];
-  }, [activePaymentMethods, metodoPago]);
+    return availablePaymentMethods.find(m => m.nombre.toLowerCase() === metodoPago.toLowerCase()) || availablePaymentMethods[0];
+  }, [availablePaymentMethods, metodoPago]);
 
   const getText = (key: keyof StoreCustomTexts): string => {
     if (customTexts && customTexts[key] !== undefined) {
@@ -1055,6 +1215,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [confirmClearCart, setConfirmClearCart] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
+  const [showShareToast, setShowShareToast] = useState(false);
+  const shareToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasCheckedInitialUrlRef = useRef(false);
 
   // Save cart to localStorage
   useEffect(() => {
@@ -1069,10 +1233,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (quickViewProduct) {
-          setQuickViewProduct(null);
-          setQuickViewActiveVariant(null);
-          setQuickViewImageIndex(0);
+        if (isLightboxOpen) {
+          setIsLightboxOpen(false);
+        } else if (quickViewProduct) {
+          closeQuickView();
         } else if (completedOrder) {
           setCompletedOrder(null);
         } else if (isCheckoutOpen) {
@@ -1099,6 +1263,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
+    isLightboxOpen,
     quickViewProduct,
     completedOrder,
     isCheckoutOpen,
@@ -1114,7 +1279,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
   // Bloqueo de Scroll (Body Scroll Lock): aplica overflow: hidden al body cuando se abre el modal o panel
   useEffect(() => {
-    const isLocked = Boolean(quickViewProduct || isCheckoutOpen || isCartOpen || isMobileMenuOpen || completedOrder);
+    const isLocked = Boolean(isLightboxOpen || quickViewProduct || isCheckoutOpen || isCartOpen || isMobileMenuOpen || completedOrder);
     if (isLocked) {
       const originalOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
@@ -1122,7 +1287,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         document.body.style.overflow = originalOverflow || '';
       };
     }
-  }, [quickViewProduct, isCheckoutOpen, isCartOpen, isMobileMenuOpen, completedOrder]);
+  }, [isLightboxOpen, quickViewProduct, isCheckoutOpen, isCartOpen, isMobileMenuOpen, completedOrder]);
 
   // Cerrar el menú desplegado en móvil al tocar fuera de la barra de categorías
   useEffect(() => {
@@ -1411,6 +1576,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       groupId?: string;
       title: string;
       coverProduct: Producto;
+      coverImage?: string;
+      grupo_imagen_portada?: string;
       variants: Producto[];
       individualVariants: Producto[];
       kitVariant: Producto | null;
@@ -1576,6 +1743,33 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         }
 
         const cover = coverBase || allVariants[0];
+
+        // Determinación de la portada asignada en la base de datos para productos con variantes:
+        // Prioridad:
+        // 1. grupo_imagen_portada: imagen asignada a nivel de grupo en Firestore en cualquiera de sus productos
+        // 2. Si no tiene grupo_imagen_portada, foto de la variante designada como principal (es_principal_grupo)
+        // 3. Foto de portada o principal de la variante con stock
+        const rawGroupCover = (
+          variants.find(v => v.grupo_imagen_portada && typeof v.grupo_imagen_portada === 'string' && v.grupo_imagen_portada.trim())?.grupo_imagen_portada ||
+          p.grupo_imagen_portada ||
+          coverBase?.grupo_imagen_portada ||
+          variants.find(v => v.es_principal_grupo && (v.imagen_portada || v.variante_imagen_hd || v.link || v.imagen_url))?.imagen_portada ||
+          individualVariants.find(v => v.es_principal_grupo && (v.imagen_portada || v.variante_imagen_hd || v.link || v.imagen_url))?.imagen_portada ||
+          individualVariants.find(v => v.es_principal_grupo)?.variante_imagen_hd ||
+          variants.find(v => v.es_principal_grupo)?.variante_imagen_hd ||
+          individualVariants.find(v => v.es_principal_grupo)?.link ||
+          variants.find(v => v.es_principal_grupo)?.link ||
+          individualVariants.find(v => v.es_principal_grupo)?.imagen_url ||
+          variants.find(v => v.es_principal_grupo)?.imagen_url ||
+          variants.find(v => v.imagen_portada && typeof v.imagen_portada === 'string' && v.imagen_portada.trim())?.imagen_portada ||
+          coverBase?.imagen_portada ||
+          coverBase?.variante_imagen_hd ||
+          coverBase?.link ||
+          coverBase?.imagen_url ||
+          ''
+        );
+        const groupCoverImage = rawGroupCover ? formatDirectImageUrl(rawGroupCover) : '';
+
         const validPrices = allVariants.map(v => v.precio_venta_ref || v.precio_mayor || 0).filter(pr => pr > 0);
         const priceMin = validPrices.length > 0 ? Math.min(...validPrices) : (cover.precio_venta_ref || cover.precio_mayor || 0);
         const priceMax = validPrices.length > 0 ? Math.max(...validPrices) : (cover.precio_venta_ref || cover.precio_mayor || 0);
@@ -1591,6 +1785,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           groupId: p.grupo_id,
           title: cover.grupo_nombre || cover.nombre,
           coverProduct: cover,
+          coverImage: groupCoverImage,
+          grupo_imagen_portada: rawGroupCover,
           variants: allVariants,
           individualVariants,
           kitVariant,
@@ -1620,11 +1816,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         const kitImage = p.grupo_kit_imagen || '';
         const kitNombre = p.grupo_kit_nombre || p.kit_nombre || (p as any).nombre_kit || 'Kit';
         const price = p.precio_venta_ref || p.precio_mayor || 0;
+        const rawSingleCover = p.imagen_portada || p.variante_imagen_hd || p.link || p.imagen_url || '';
         items.push({
           id: p.id,
           isGroup: false,
           title: p.nombre,
           coverProduct: p,
+          coverImage: rawSingleCover ? formatDirectImageUrl(rawSingleCover) : '',
           variants: [p],
           individualVariants: [p],
           kitVariant: null,
@@ -1781,12 +1979,31 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     if (activeItems.length === 0) return;
     setCart(activeItems);
     setIsCartOpen(false);
-    setCheckoutStep(1);
+    setCheckoutStep(0);
     setIsCheckoutOpen(true);
   };
 
-  // Helper to open QuickView modal
-  const openQuickView = (variant: Producto, keepSelectedKit: boolean = false) => {
+  // Cerrar QuickView y limpiar parámetro de URL ?p=
+  const closeQuickView = () => {
+    setIsLightboxOpen(false);
+    setQuickViewProduct(null);
+    setQuickViewActiveVariant(null);
+    setQuickViewUserSelectedVariant(false);
+    setQuickViewImageIndex(0);
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('p')) {
+        url.searchParams.delete('p');
+        window.history.pushState({}, '', url.pathname + (url.search ? url.search : '') + url.hash);
+      }
+    } catch (e) {
+      console.warn("Could not clear product URL parameter:", e);
+    }
+  };
+
+  // Helper to open QuickView modal con soporte de actualización de URL (Deep Linking)
+  const openQuickView = (variant: Producto, keepSelectedKit: boolean = false, updateHistory: boolean = true) => {
+    setIsLightboxOpen(false);
     let effectiveVariant = variant;
     // Si la variante enviada es el kit pero no se forzó mantenerlo (ej: apertura inicial desde imagen/título), preseleccionar la primera variante individual
     if (!keepSelectedKit && effectiveVariant.es_kit && isValidGroupId(effectiveVariant.grupo_id)) {
@@ -1800,19 +2017,132 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     setQuickViewImageIndex(0);
     setQuickViewQty(1);
     setQuickViewAdded(false);
+
+    if (updateHistory) {
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('p') !== effectiveVariant.id) {
+          url.searchParams.set('p', effectiveVariant.id);
+          window.history.pushState({ productId: effectiveVariant.id }, '', url.toString());
+        }
+      } catch (e) {
+        console.warn("Could not update product URL parameter:", e);
+      }
+    }
   };
 
-  // Apertura desde la tarjeta del catálogo: si el usuario ya seleccionó una opción, abrir con esa opción; si no, abre con la misma variante activa mostrada en la tarjeta
+  // Compartir enlace del producto (Clipboard API y Toast de confirmación)
+  const handleShareProduct = async (productToShare?: Producto) => {
+    const prod = productToShare || quickViewActiveVariant || quickViewProduct;
+    if (!prod) return;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('p', prod.id);
+    const shareUrl = url.toString();
+
+    try {
+      window.history.replaceState({ productId: prod.id }, '', shareUrl);
+    } catch {}
+
+    let copied = false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+
+    if (!copied) {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = shareUrl;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        copied = document.execCommand('copy');
+        document.body.removeChild(textArea);
+      } catch (err) {
+        console.warn("Fallback copy failed:", err);
+      }
+    }
+
+    setCopiedShareLink(true);
+    setShowShareToast(true);
+
+    if (shareToastTimeoutRef.current) {
+      clearTimeout(shareToastTimeoutRef.current);
+    }
+    shareToastTimeoutRef.current = setTimeout(() => {
+      setCopiedShareLink(false);
+      setShowShareToast(false);
+    }, 2000);
+  };
+
+  // Deep linking: Escuchar cambios de historial en el navegador (Botones Atrás / Adelante)
+  useEffect(() => {
+    const handlePopState = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const pId = params.get('p');
+        if (!pId) {
+          if (quickViewProduct) {
+            setQuickViewProduct(null);
+            setQuickViewActiveVariant(null);
+            setQuickViewUserSelectedVariant(false);
+            setQuickViewImageIndex(0);
+          }
+        } else {
+          const found = sourceProducts.find(p => p.id === pId || p.sku === pId || p.grupo_id === pId);
+          if (found) {
+            setQuickViewUserSelectedVariant(true);
+            openQuickView(found, true, false);
+          }
+        }
+      } catch (err) {
+        console.warn("Popstate handling error:", err);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [quickViewProduct, sourceProducts, catalogItems]);
+
+  // Deep linking: Carga inicial directa si la URL contiene ?p=ID_DEL_PRODUCTO
+  useEffect(() => {
+    if (sourceProducts.length === 0 || hasCheckedInitialUrlRef.current) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pId = params.get('p');
+      if (pId) {
+        const found = sourceProducts.find(p => p.id === pId || p.sku === pId || p.grupo_id === pId);
+        if (found) {
+          hasCheckedInitialUrlRef.current = true;
+          setQuickViewUserSelectedVariant(true);
+          openQuickView(found, true, false);
+        }
+      }
+    } catch (err) {
+      console.warn("Initial URL deep linking error:", err);
+    }
+  }, [sourceProducts, catalogItems]);
+
+  // Apertura desde la tarjeta del catálogo: si el usuario ya seleccionó una opción, abrir con esa opción; si no, abre con la portada asignada
   const handleOpenCardQuickView = (item: (typeof catalogItems)[0]) => {
     const selectedId = selectedVariantMap[item.id];
     if (selectedId) {
       const selectedVar = item.variants.find(v => v.id === selectedId);
       if (selectedVar) {
+        setQuickViewUserSelectedVariant(true);
         openQuickView(selectedVar, true);
         return;
       }
     }
-    // Si no ha seleccionado ninguna miniatura en la tarjeta, abre con la misma variante activa de portada mostrada en la tarjeta
+    // Si no ha seleccionado ninguna miniatura en la tarjeta, abre con la portada asignada en la base de datos
+    setQuickViewUserSelectedVariant(false);
     openQuickView(item.coverProduct);
   };
 
@@ -1874,25 +2204,31 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       setOrderFormError("Tu carrito está vacío o no contiene productos con cantidad válida.");
       return;
     }
-    if (!clienteNombre.trim()) {
-      setOrderFormError("Por favor ingresa tu Nombre y Apellido.");
-      return;
-    }
-    if (!clienteCedula.trim()) {
-      setOrderFormError("Por favor ingresa tu Número de Cédula.");
-      return;
-    }
-    if (!clienteTelefono.trim()) {
-      setOrderFormError("Por favor ingresa tu Número de Teléfono o WhatsApp.");
-      return;
-    }
-    if (!direccionAgencia.trim()) {
-      setOrderFormError("Por favor ingresa la Dirección de la agencia de envío.");
-      return;
+    const isPickupInStore = metodoEntrega === 'retiro';
+    const isStorePayment = metodoPago.toLowerCase() === 'pago en tienda';
+
+    // Para envíos nacionales, se exigen los 4 campos obligatorios de encomienda
+    if (!isPickupInStore) {
+      if (!clienteNombre.trim()) {
+        setOrderFormError("Por favor ingresa tu Nombre y Apellido.");
+        return;
+      }
+      if (!clienteCedula.trim()) {
+        setOrderFormError("Por favor ingresa tu Número de Cédula.");
+        return;
+      }
+      if (!clienteTelefono.trim()) {
+        setOrderFormError("Por favor ingresa tu Número de Teléfono o WhatsApp.");
+        return;
+      }
+      if (!direccionAgencia.trim()) {
+        setOrderFormError("Por favor ingresa la Dirección de la agencia de envío.");
+        return;
+      }
     }
 
     // When paying directly with receipt, ensure voucher image is attached
-    if (tipoConfirmacion === 'comprobante') {
+    if (!isStorePayment && tipoConfirmacion === 'comprobante') {
       if (!comprobanteUrl) {
         setOrderFormError("Por favor adjunta la foto o captura de tu comprobante de pago.");
         return;
@@ -1903,7 +2239,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     try {
       const orderId = doc(collection(db, 'pedidos_tienda')).id;
       const orderNumber = `BIKER-${Date.now().toString().slice(-6)}`;
-      const fullShippingAddress = `${agenciaSeleccionada.toUpperCase()}: ${direccionAgencia.trim()}`;
+      const fullShippingAddress = isPickupInStore
+        ? 'Retiro en tienda (Mérida) - Moto Cristo'
+        : `${agenciaSeleccionada.toUpperCase()}: ${direccionAgencia.trim()}`;
+      const effectiveClientName = clienteNombre.trim() || (isPickupInStore ? 'Cliente (Retiro en tienda)' : 'Cliente');
+      const effectiveClientCedula = clienteCedula.trim() || 'N/A';
+      const effectiveClientPhone = clienteTelefono.trim() || 'N/A';
 
       const orderItems: PedidoTiendaItem[] = activeCart.map((item) => ({
         productId: item.product.id,
@@ -1918,7 +2259,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         kit_componentes_ids: item.product.kit_componentes_ids || undefined
       }));
 
-      if (tipoConfirmacion === 'comprobante') {
+      if (!isStorePayment && tipoConfirmacion === 'comprobante') {
         // =========================================================================
         // AUTOMATED MODE: Create income transaction and deduct stock immediately
         // =========================================================================
@@ -2015,6 +2356,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           cliente_cedula: clienteCedula.trim(),
           cliente_telefono: clienteTelefono.trim(),
           direccion_agencia_envio: removeAccents(fullShippingAddress),
+          metodo_entrega: metodoEntrega,
           items: orderItems,
           tasaBCV,
           totalUSD: cartTotals.totalUSD,
@@ -2050,10 +2392,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           id: orderId,
           numero_pedido: orderNumber,
           fecha: format(new Date(), 'yyyy-MM-dd HH:mm'),
-          cliente_nombre: removeAccents(clienteNombre.trim()),
-          cliente_cedula: clienteCedula.trim(),
-          cliente_telefono: clienteTelefono.trim(),
+          cliente_nombre: removeAccents(effectiveClientName),
+          cliente_cedula: effectiveClientCedula,
+          cliente_telefono: effectiveClientPhone,
           direccion_agencia_envio: removeAccents(fullShippingAddress),
+          metodo_entrega: metodoEntrega,
           items: orderItems,
           tasaBCV,
           totalUSD: cartTotals.totalUSD,
@@ -2084,6 +2427,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     } finally {
       setIsSubmittingOrder(false);
     }
+  };
+
+  // Generate clean WhatsApp Message for in-store pickup matching exact user specification
+  const generateStorePickupWhatsAppText = (order: PedidoTienda) => {
+    let text = `Hola, quiero apartar este pedido. Pasaré por la tienda a retirarlo y pagarlo personalmente.\n\n`;
+    text += `📦 *Productos:*\n`;
+    order.items.forEach((it) => {
+      text += `• ${it.cantidad}x ${it.nombre} — $${it.precio_unitario.toFixed(2)} USD\n`;
+    });
+    text += `\n💰 *Total:* $${order.totalUSD.toFixed(2)} USD (≈ Bs. ${formatVES(order.totalBS)})\n\n`;
+    text += `📍 *Retiro:* Moto Cristo (Mérida)`;
+    return text;
   };
 
   // Generate WhatsApp Message for Order matching user's exact specification
@@ -2140,7 +2495,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
   // Open WhatsApp with prefilled message directed to store owner (04128276786 -> 584128276786)
   const handleSendToWhatsApp = (order: PedidoTienda) => {
-    const text = generateOrderWhatsAppText(order);
+    const isStorePickupCash = order.metodo_pago?.toLowerCase() === 'pago en tienda' || (order.metodo_entrega === 'retiro' && order.metodo_pago?.toLowerCase() === 'pago en tienda');
+    const text = isStorePickupCash
+      ? generateStorePickupWhatsAppText(order)
+      : generateOrderWhatsAppText(order);
     const encoded = encodeURIComponent(text);
     const targetPhone = '584128276786';
     const url = `https://api.whatsapp.com/send?phone=${targetPhone}&text=${encoded}`;
@@ -2832,8 +3190,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               const activeVariant = item.variants.find(v => v.id === selectedVariantMap[item.id]) || item.coverProduct;
               const hasVariants = Boolean(item.variants && item.variants.length > 1);
               
-              // Cada variante (incluida la portada principal por defecto) usa estricta y exclusivamente sus propias fotos
-              const itemImages = getItemImages(item, activeVariant);
+              // Al abrir la página (cuando el usuario no ha seleccionado una variante específica),
+              // se utiliza estrictamente la imagen asignada como portada en la base de datos
+              const itemImages = getItemImages(item, activeVariant, !isSelectedByUser && Boolean(item.coverImage));
 
               const currentImageIndex = cardImageIndexMap[item.id] || 0;
               const priceUSD = activeVariant.precio_venta_ref || activeVariant.precio_mayor || 0;
@@ -2846,7 +3205,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <div
                   key={`biker-cat-item-${item.id}-${itemIdx}`}
                   onClick={() => handleOpenCardQuickView(item)}
-                  className="bg-white rounded-none sm:rounded-sm p-0 flex flex-col justify-between group relative cursor-pointer overflow-hidden transition-all duration-150"
+                  className="bg-white rounded-none sm:rounded-sm p-0 flex flex-col h-full group relative cursor-pointer overflow-hidden transition-all duration-150"
                   title="Haz clic para ver detalles y agregar al carrito"
                 >
                   {/* Contenedor de Imagen: Ocupa el 100% del ancho de la tarjeta sin padding lateral */}
@@ -2875,8 +3234,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   </div>
 
                   {/* Product Info: Con ligero espaciado interno para respirar debajo de la foto */}
-                  <div className="pt-2 pb-2 px-1 sm:px-1.5 space-y-1.5 flex-1 flex flex-col justify-between">
-                    <div>
+                  <div className="pt-2 pb-2 px-1 sm:px-1.5 flex-1 flex flex-col justify-between">
+                    <div className="flex-1 flex flex-col">
                       {/* Name / Título General: Negro Apple / Shein #111111 */}
                       <h4 
                         className="font-medium text-xs sm:text-[13px] text-[#111111] line-clamp-2 min-h-[2rem] sm:min-h-[2.3rem] group-hover:text-[#FF5200] transition-colors leading-snug tracking-tight"
@@ -2885,148 +3244,155 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         {formatTitleCase(item.title)}
                       </h4>
 
-                      {/* Selector Visual de Variantes por Miniaturas */}
-                      {item.isGroup && item.variants.length > 1 && (
-                        <div className="pt-1 pb-0.5 space-y-0.5">
-                          <div className="flex items-center justify-between text-[7.5px]">
-                            <span className="text-gray-500 font-normal flex items-center gap-1 truncate max-w-[130px]">
-                              <Boxes size={8} className="text-[#FF5200] shrink-0" />
-                              <span>
-                                {activeVariant.es_kit ? 'Kit:' : 'Mod:'}
+                      {/* Selector Visual de Variantes: Altura mínima fija de 40px para Zero CLS */}
+                      <div className="min-h-[40px] flex flex-col justify-center">
+                        {item.isGroup && item.variants.length > 1 ? (
+                          <div className="pt-1 pb-0.5 space-y-0.5">
+                            <div className="flex items-center justify-between text-[7.5px]">
+                              <span className="text-gray-500 font-normal flex items-center gap-1 truncate max-w-[130px]">
+                                <Boxes size={8} className="text-[#FF5200] shrink-0" />
+                                <span>
+                                  {isSelectedByUser ? (activeVariant.es_kit ? 'Kit:' : 'Mod:') : 'Opciones:'}
+                                </span>
+                                <strong className="text-gray-800 font-medium truncate">
+                                  {isSelectedByUser ? (activeVariant.variante_nombre || activeVariant.nombre) : 'Portada'}
+                                </strong>
                               </span>
-                              <strong className="text-gray-800 font-medium truncate">
-                                {activeVariant.variante_nombre || activeVariant.nombre}
-                              </strong>
-                            </span>
-                            <span className="text-[7px] font-mono text-gray-400 shrink-0">
-                              {item.variants.length} opc.
-                            </span>
-                          </div>
+                              <span className="text-[7px] font-mono text-gray-400 shrink-0">
+                                {item.variants.length} opc.
+                              </span>
+                            </div>
 
-                          {/* Tira de Miniaturas Visuales de Modelos Diferentes */}
-                          <div className="flex items-center gap-1 overflow-x-auto py-0.5 px-0.5 custom-scrollbar">
-                            {item.variants.map((v) => {
-                              const isSelected = activeVariant.id === v.id;
-                              const vInStock = (v.stock_disponible || 0) > 0;
-                              const rawThumb = v.es_kit 
-                                ? (v.grupo_kit_imagen || item.kitImage || v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url)
-                                : (v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url);
-                              const vImg = rawThumb ? formatDirectImageUrl(rawThumb) : '';
-                              return (
-                                <button
-                                  key={v.id}
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedVariantMap(prev => ({ ...prev, [item.id]: v.id }));
-                                    setCardImageIndexMap(prev => ({ ...prev, [item.id]: 0 }));
-                                  }}
-                                  className={`w-6 h-6 sm:w-7 sm:h-7 rounded-sm overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
-                                    isSelected
-                                      ? 'border-[#FF5200] ring-1 ring-[#FF5200]/40 scale-105 shadow-2xs z-10'
-                                      : 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
-                                  }`}
-                                  title={`${v.variante_nombre || (v.es_kit ? (item.kitName || 'Kit') : v.nombre)} - $${(v.precio_venta_ref || v.precio_mayor || 0).toFixed(2)} USD`}
-                                >
-                                  {vImg ? (
-                                    <img
-                                      src={vImg}
-                                      alt={v.variante_nombre || v.nombre}
-                                      className="w-full h-full object-cover"
-                                      onError={(e) => {
-                                        (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
-                                      }}
-                                    />
-                                  ) : (
-                                    <span className="text-[7px] font-medium text-gray-500 text-center p-0.5 truncate leading-none">
-                                      {v.es_kit ? (v.variante_nombre || item.kitName || 'Kit').slice(0, 4) : (v.variante_nombre || v.nombre).slice(0, 3)}
-                                    </span>
-                                  )}
-                                  {!vInStock && (
-                                    <span className="absolute inset-0 bg-white/70 flex items-center justify-center text-rose-600 text-[7px] font-bold">
-                                      ✕
-                                    </span>
-                                  )}
-                                </button>
-                              );
-                            })}
+                            {/* Tira de Miniaturas Visuales de Modelos Diferentes */}
+                            <div className="flex items-center gap-1 overflow-x-auto py-0.5 px-0.5 custom-scrollbar">
+                              {item.variants.map((v) => {
+                                const isSelected = isSelectedByUser && activeVariant.id === v.id;
+                                const vInStock = (v.stock_disponible || 0) > 0;
+                                const rawThumb = v.es_kit 
+                                  ? (v.grupo_kit_imagen || item.kitImage || v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url)
+                                  : (v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url);
+                                const vImg = rawThumb ? formatDirectImageUrl(rawThumb) : '';
+                                return (
+                                  <button
+                                    key={v.id}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedVariantMap(prev => ({ ...prev, [item.id]: v.id }));
+                                      setCardImageIndexMap(prev => ({ ...prev, [item.id]: 0 }));
+                                    }}
+                                    className={`w-6 h-6 sm:w-7 sm:h-7 rounded-sm overflow-hidden shrink-0 border transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
+                                      isSelected
+                                        ? 'border-[#FF5200] ring-1 ring-[#FF5200]/40 scale-105 shadow-2xs z-10'
+                                        : 'border-gray-200 opacity-80 hover:opacity-100 hover:border-gray-400'
+                                    }`}
+                                    title={`${v.variante_nombre || (v.es_kit ? (item.kitName || 'Kit') : v.nombre)} - $${(v.precio_venta_ref || v.precio_mayor || 0).toFixed(2)} USD`}
+                                  >
+                                    {vImg ? (
+                                      <img
+                                        src={vImg}
+                                        alt={v.variante_nombre || v.nombre}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          (e.currentTarget as HTMLImageElement).style.opacity = '0.3';
+                                        }}
+                                      />
+                                    ) : (
+                                      <span className="text-[7px] font-medium text-gray-500 text-center p-0.5 truncate leading-none">
+                                        {v.es_kit ? (v.variante_nombre || item.kitName || 'Kit').slice(0, 4) : (v.variante_nombre || v.nombre).slice(0, 3)}
+                                      </span>
+                                    )}
+                                    {!vInStock && (
+                                      <span className="absolute inset-0 bg-white/70 flex items-center justify-center text-rose-600 text-[7px] font-bold">
+                                        ✕
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Price section: Naranja Refinado #FF5200 en semibold y Bolívares en gris medio normal */}
-                    <div className="pt-1 border-t border-gray-100 space-y-0.5 font-mono">
-                      <div className="flex items-baseline gap-1 flex-wrap">
-                        {item.hasKit && !isSelectedByUser ? (
-                          <>
-                            <span className="text-[9px] font-normal text-gray-500">Desde</span>
-                            <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} </span>
-                            <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
-                          </>
-                        ) : item.isGroup && item.priceMin !== item.priceMax && !isSelectedByUser ? (
-                          <>
-                            <span className="text-[9px] font-normal text-gray-500">Desde</span>
-                            <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} - ${item.priceMax.toFixed(2)} </span>
-                            <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
-                          </>
                         ) : (
-                          <>
-                            <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${priceUSD.toFixed(2)} </span>
-                            <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
-                          </>
+                          <div className="h-[40px]" aria-hidden="true" />
                         )}
                       </div>
-                      <div className="text-[9.5px] sm:text-[10px] font-normal text-gray-500 leading-tight">
-                        ≈ Bs. {formatVES((item.hasKit && !isSelectedByUser ? item.priceMin : priceUSD) * tasaBCV)}
-                      </div>
                     </div>
 
-                    {/* Botón CTA Único (Fondo negro, font-medium, esquinas mínimas rounded-sm) */}
-                    <div className="pt-1.5">
-                      {hasVariants ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenCardQuickView(item);
-                          }}
-                          className="w-full py-1.5 sm:py-2 px-2.5 rounded-sm bg-[#000000] hover:bg-neutral-800 text-white font-medium text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition-all"
-                          title="Ver opciones disponibles"
-                        >
-                          <ShoppingCart size={12} className="text-white stroke-[2.2] shrink-0" />
-                          <span>Ver opciones</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isVariantInStock) {
-                              handleAddToCart(activeVariant, 1, e.currentTarget as HTMLElement);
-                            }
-                          }}
-                          disabled={!isVariantInStock}
-                          className={`w-full py-1.5 sm:py-2 px-2.5 rounded-sm font-medium text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                            isJustAdded
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30'
-                              : 'bg-[#000000] hover:bg-neutral-800 text-white'
-                          }`}
-                          title={isVariantInStock ? "Agregar este producto al carrito" : "Producto agotado"}
-                        >
-                          {isJustAdded ? (
+                    {/* Contenedor inferior fijado con mt-auto: Precios y Botón CTA */}
+                    <div className="mt-auto pt-2 space-y-1.5">
+                      {/* Price section: Naranja Refinado #FF5200 en semibold y Bolívares en gris medio normal */}
+                      <div className="pt-1 border-t border-gray-100 space-y-0.5 font-mono">
+                        <div className="flex items-baseline gap-1 flex-wrap">
+                          {item.hasKit && !isSelectedByUser ? (
                             <>
-                              <Check size={12} className="stroke-[3] text-white shrink-0" />
-                              <span>¡Agregado!</span>
+                              <span className="text-[9px] font-normal text-gray-500">Desde</span>
+                              <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} </span>
+                              <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
+                            </>
+                          ) : item.isGroup && item.priceMin !== item.priceMax && !isSelectedByUser ? (
+                            <>
+                              <span className="text-[9px] font-normal text-gray-500">Desde</span>
+                              <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} - ${item.priceMax.toFixed(2)} </span>
+                              <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
                             </>
                           ) : (
                             <>
-                              <ShoppingCart size={12} className="text-white stroke-[2.2] shrink-0" />
-                              <span>{isVariantInStock ? 'Agregar al carrito' : 'Agotado'}</span>
+                              <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${priceUSD.toFixed(2)} </span>
+                              <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
                             </>
                           )}
-                        </button>
-                      )}
+                        </div>
+                        <div className="text-[9.5px] sm:text-[10px] font-normal text-gray-500 leading-tight">
+                          ≈ Bs. {formatVES((item.hasKit && !isSelectedByUser ? item.priceMin : priceUSD) * tasaBCV)}
+                        </div>
+                      </div>
+
+                      {/* Botón CTA Único (Fondo negro, font-medium, esquinas mínimas rounded-sm) */}
+                      <div>
+                        {hasVariants ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenCardQuickView(item);
+                            }}
+                            className="w-full py-1.5 sm:py-2 px-2.5 rounded-sm bg-[#000000] hover:bg-neutral-800 text-white font-medium text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition-all"
+                            title="Ver opciones disponibles"
+                          >
+                            <ShoppingCart size={12} className="text-white stroke-[2.2] shrink-0" />
+                            <span>Ver opciones</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isVariantInStock) {
+                                handleAddToCart(activeVariant, 1, e.currentTarget as HTMLElement);
+                              }
+                            }}
+                            disabled={!isVariantInStock}
+                            className={`w-full py-1.5 sm:py-2 px-2.5 rounded-sm font-medium text-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                              isJustAdded
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30'
+                                : 'bg-[#000000] hover:bg-neutral-800 text-white'
+                            }`}
+                            title={isVariantInStock ? "Agregar este producto al carrito" : "Producto agotado"}
+                          >
+                            {isJustAdded ? (
+                              <>
+                                <Check size={12} className="stroke-[3] text-white shrink-0" />
+                                <span>¡Agregado!</span>
+                              </>
+                            ) : (
+                              <>
+                                <ShoppingCart size={12} className="text-white stroke-[2.2] shrink-0" />
+                                <span>{isVariantInStock ? 'Agregar al carrito' : 'Agotado'}</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3530,25 +3896,29 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl sm:rounded-2xl bg-[#000000] text-white flex items-center justify-center font-black shrink-0 shadow-xs">
-                    <Truck size={15} />
+                    {checkoutStep === 0 ? (
+                      metodoEntrega === 'retiro' ? <Store size={15} /> : <Truck size={15} />
+                    ) : checkoutStep === 1 ? (
+                      <Truck size={15} />
+                    ) : (
+                      <CreditCard size={15} />
+                    )}
                   </div>
                   <div>
-                    <EditableStoreText
-                      textKey="checkoutModalTitle"
-                      value={getText('checkoutModalTitle')}
-                      isAdmin={isAdmin}
-                      onOpenEditor={handleOpenTextEditorFor}
-                      as="h3"
-                      className="font-medium text-sm sm:text-lg text-[#111111] leading-none"
-                    />
-                    <EditableStoreText
-                      textKey="checkoutModalSubtitle"
-                      value={getText('checkoutModalSubtitle')}
-                      isAdmin={isAdmin}
-                      onOpenEditor={handleOpenTextEditorFor}
-                      as="p"
-                      className="text-[11px] sm:text-xs text-gray-500 font-normal mt-0.5 leading-none"
-                    />
+                    <h3 className="font-medium text-sm sm:text-lg text-[#111111] leading-none">
+                      {checkoutStep === 0
+                        ? "Método de entrega"
+                        : checkoutStep === 1
+                        ? (getText('checkoutModalTitle') || "Datos de envío")
+                        : (metodoEntrega === 'retiro' ? "Retiro en tienda" : (getText('checkoutModalTitle') || "Finalizar pedido"))}
+                    </h3>
+                    <p className="text-[11px] sm:text-xs text-gray-500 font-normal mt-0.5 leading-none">
+                      {checkoutStep === 0
+                        ? "Elige la forma de entrega para continuar"
+                        : checkoutStep === 1
+                        ? (getText('checkoutModalSubtitle') || "Información para encomienda nacional")
+                        : (metodoEntrega === 'retiro' ? "Paga y retira en Moto Cristo (Mérida)" : "Selecciona tu método de pago")}
+                    </p>
                   </div>
                 </div>
 
@@ -3577,48 +3947,202 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 </div>
               </div>
 
-              {/* Barra de Ruta (Pasos 1 y 2 - Estilo Neutro Minimalista y Compacto) */}
+              {/* Barra de Ruta (Pasos Adaptativos) */}
               <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg sm:rounded-xl py-1 px-2.5 sm:p-2 sm:px-3 text-xs font-medium shadow-xs">
+                {/* 1. Entrega */}
                 <button
                   type="button"
                   onClick={() => {
                     setOrderFormError(null);
-                    setCheckoutStep(1);
+                    setCheckoutStep(0);
                   }}
                   className={`flex items-center gap-1.5 cursor-pointer transition-colors ${
-                    checkoutStep === 1 ? 'text-[#111111] font-semibold' : 'text-gray-600 hover:text-black font-normal'
+                    checkoutStep === 0 ? 'text-[#111111] font-semibold' : 'text-gray-600 hover:text-black font-normal'
                   }`}
                 >
-                  <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium bg-[#000000] text-white">
-                    {checkoutStep === 2 ? '✓' : '1'}
+                  <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium ${
+                    checkoutStep > 0 ? 'bg-[#000000] text-white' : 'bg-[#000000] text-white'
+                  }`}>
+                    {checkoutStep > 0 ? '✓' : '1'}
                   </span>
-                  <span className="text-[11px] sm:text-xs font-medium">1. Envío</span>
+                  <span className="text-[11px] sm:text-xs font-medium">1. Entrega</span>
                 </button>
 
                 <div className="flex-1 mx-2 sm:mx-3 h-0.5 bg-gray-200 relative">
-                  <div className={`h-full bg-[#000000] transition-all duration-300 ${checkoutStep === 2 ? 'w-full' : 'w-0'}`} />
+                  <div className={`h-full bg-[#000000] transition-all duration-300 ${
+                    checkoutStep > 0 ? 'w-full' : 'w-0'
+                  }`} />
                 </div>
 
+                {/* 2. Envío (solo si metodoEntrega === 'envio') */}
+                {metodoEntrega === 'envio' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (checkoutStep >= 1) {
+                          setOrderFormError(null);
+                          setCheckoutStep(1);
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 ${
+                        checkoutStep >= 1 ? 'cursor-pointer' : 'cursor-default'
+                      } transition-colors ${
+                        checkoutStep === 1 ? 'text-[#111111] font-semibold' : (checkoutStep > 1 ? 'text-gray-600 hover:text-black font-normal' : 'text-gray-400')
+                      }`}
+                    >
+                      <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium ${
+                        checkoutStep > 1 ? 'bg-[#000000] text-white' : (checkoutStep === 1 ? 'bg-[#000000] text-white' : 'bg-gray-200 text-gray-600')
+                      }`}>
+                        {checkoutStep > 1 ? '✓' : '2'}
+                      </span>
+                      <span className="text-[11px] sm:text-xs font-medium">2. Envío</span>
+                    </button>
+
+                    <div className="flex-1 mx-2 sm:mx-3 h-0.5 bg-gray-200 relative">
+                      <div className={`h-full bg-[#000000] transition-all duration-300 ${
+                        checkoutStep === 2 ? 'w-full' : 'w-0'
+                      }`} />
+                    </div>
+                  </>
+                )}
+
+                {/* 3. Pago */}
                 <div className={`flex items-center gap-1.5 ${
                   checkoutStep === 2 ? 'text-[#111111] font-semibold' : 'text-gray-400'
                 }`}>
                   <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium ${
                     checkoutStep === 2 ? 'bg-[#000000] text-white' : 'bg-gray-200 text-gray-600'
                   }`}>
-                    2
+                    {metodoEntrega === 'envio' ? '3' : '2'}
                   </span>
-                  <span className="text-[11px] sm:text-xs font-medium">2. Pago</span>
+                  <span className="text-[11px] sm:text-xs font-medium">
+                    {metodoEntrega === 'envio' ? '3. Pago' : '2. Pago'}
+                  </span>
                 </div>
               </div>
             </div>
 
             {/* Form & Items */}
-            <form onSubmit={handleSubmitOrder} className="p-3 sm:p-6 overflow-y-auto space-y-3 sm:space-y-4 flex-1 custom-scrollbar">
+            <form onSubmit={handleSubmitOrder} className={`p-3 sm:p-6 overflow-y-auto space-y-3 sm:space-y-4 flex-1 custom-scrollbar transition-colors ${checkoutStep === 2 ? 'bg-gray-50' : 'bg-white'}`}>
               {/* Form Error Banner */}
               {orderFormError && (
                 <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs font-normal flex items-center gap-2.5 animate-shake">
                   <AlertCircle size={16} className="text-rose-600 shrink-0" />
                   <span>{orderFormError}</span>
+                </div>
+              )}
+
+              {/* ========================================================= */}
+              {/* PASO 0: SELECCIÓN DE MÉTODO DE ENTREGA                     */}
+              {/* ========================================================= */}
+              {checkoutStep === 0 && (
+                <div className="space-y-3 sm:space-y-4 animate-fade-in py-1">
+                  <div className="text-left pb-1 border-b border-gray-100">
+                    <h4 className="text-sm font-medium text-[#111111]">
+                      Método de entrega
+                    </h4>
+                    <p className="text-xs text-gray-500 font-normal mt-0.5">
+                      Selecciona cómo deseas recibir tu pedido
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-0.5">
+                    {/* Tarjeta A: Retiro en tienda (Mérida) */}
+                    <div
+                      onClick={() => setMetodoEntrega('retiro')}
+                      className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left relative ${
+                        metodoEntrega === 'retiro'
+                          ? 'border-black ring-1 ring-black bg-white shadow-xs'
+                          : 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50/60'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+                          metodoEntrega === 'retiro' ? 'bg-black text-white' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          <Store size={20} strokeWidth={1.8} />
+                        </div>
+                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                          metodoEntrega === 'retiro' ? 'border-black bg-black text-white' : 'border-gray-300 bg-white'
+                        }`}>
+                          {metodoEntrega === 'retiro' && <Check size={11} strokeWidth={3} />}
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <h4 className="text-sm font-medium text-[#111111] leading-snug">
+                          Retiro en tienda (Mérida)
+                        </h4>
+                        <p className="text-xs text-gray-500 font-normal mt-1 leading-relaxed">
+                          Retira personalmente en Moto Cristo y paga en tienda en efectivo o punto de venta.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Tarjeta B: Envío a nivel nacional */}
+                    <div
+                      onClick={() => setMetodoEntrega('envio')}
+                      className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left relative ${
+                        metodoEntrega === 'envio'
+                          ? 'border-black ring-1 ring-black bg-white shadow-xs'
+                          : 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50/60'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+                          metodoEntrega === 'envio' ? 'bg-black text-white' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          <Truck size={20} strokeWidth={1.8} />
+                        </div>
+                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                          metodoEntrega === 'envio' ? 'border-black bg-black text-white' : 'border-gray-300 bg-white'
+                        }`}>
+                          {metodoEntrega === 'envio' && <Check size={11} strokeWidth={3} />}
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <h4 className="text-sm font-medium text-[#111111] leading-snug">
+                          Envío a nivel nacional
+                        </h4>
+                        <p className="text-xs text-gray-500 font-normal mt-1 leading-relaxed">
+                          MRW, Zoom, Domesa, Tealca
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Resumen sutil */}
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-gray-500 font-normal px-0.5">
+                      <span className="flex items-center gap-1.5">
+                        <ShoppingBag size={13} className="text-gray-400" />
+                        <span>{cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto' : 'productos'}</span>
+                      </span>
+                      <span className="font-mono">
+                        Total: <strong className="text-[#FF5200] font-medium">${cartTotals.totalUSD.toFixed(2)} USD</strong> (≈ Bs. {formatVES(cartTotals.totalBS)})
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrderFormError(null);
+                        if (metodoEntrega === 'envio') {
+                          setCheckoutStep(1);
+                        } else {
+                          // Retiro en tienda: SALTA el Paso 1 y va directo al Paso 2
+                          setCheckoutStep(2);
+                          setMetodoPago('Pago en tienda');
+                        }
+                      }}
+                      className="w-full py-3.5 bg-black hover:bg-neutral-800 text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-98 transition-all"
+                    >
+                      <span>Continuar</span>
+                      <ArrowRight size={16} className="text-white" />
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -3668,7 +4192,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     {/* 3. TELÉFONO */}
                     <div className="space-y-1">
                       <label className="text-xs font-normal text-gray-700 flex items-center gap-1.5">
-                        <img src="/whatsapp.png" alt="WhatsApp" className="w-3.5 h-3.5 object-contain shrink-0" />
+                        <WhatsAppVectorIcon size={14} className="text-[#25D366] fill-current shrink-0" />
                         <span>3. Teléfono / WhatsApp *</span>
                       </label>
                       <input
@@ -3763,142 +4287,168 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               {/* PASO 2: PAGO Y CONFIRMACIÓN                               */}
               {/* ========================================================= */}
               {checkoutStep === 2 && (
-                <div className="space-y-2 sm:space-y-3 animate-fade-in">
-                  {/* SECCIÓN 1: MÉTODOS DE PAGO Y DATOS BANCARIOS */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 space-y-2 sm:space-y-2.5">
-                    {/* Botones de Métodos de Pago */}
-                    <div>
-                      <div className="flex items-center justify-between pb-1 flex-wrap gap-1">
-                        <label className="text-xs font-normal text-gray-700 flex items-center gap-1.5">
-                          <CreditCard size={13} className="text-[#FF5200]" />
-                          <span>Métodos de pago</span>
-                        </label>
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => setIsPaymentMethodsModalOpen(true)}
-                            className="text-[9.5px] bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-lg flex items-center gap-1 font-medium cursor-pointer transition-colors"
-                          >
-                            <Edit3 size={10} />
-                            <span>Editar cuentas</span>
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                        {activePaymentMethods.map((method) => {
-                          const isSel = metodoPago.toLowerCase() === method.nombre.toLowerCase();
-                          return (
-                            <button
-                              key={method.id}
-                              type="button"
-                              onClick={() => setMetodoPago(method.nombre)}
-                              className={`py-1.5 px-2 rounded-lg border text-center text-xs transition-all cursor-pointer ${
-                                isSel
-                                  ? 'bg-[#111111] text-white border-[#111111] font-medium shadow-xs'
-                                  : 'bg-white border-gray-200 text-gray-600 font-normal hover:bg-gray-100 hover:text-[#111111]'
-                              }`}
-                            >
-                              {method.nombre}
-                            </button>
-                          );
-                        })}
-                      </div>
+                <div className="space-y-4 animate-fade-in">
+                  {/* ========================================================= */}
+                  {/* TARJETA 1: MÉTODOS DE PAGO                                */}
+                  {/* ========================================================= */}
+                  <div className="bg-white border border-gray-100 rounded-xl p-3.5 sm:p-4 space-y-2.5 shadow-sm">
+                    <div className="flex items-center justify-between pb-0.5 flex-wrap gap-1">
+                      <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+                        <CreditCard size={13} className="text-[#FF5200]" />
+                        <span>Métodos de pago</span>
+                      </label>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => setIsPaymentMethodsModalOpen(true)}
+                          className="text-[9.5px] bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-lg flex items-center gap-1 font-medium cursor-pointer transition-colors"
+                        >
+                          <Edit3 size={10} />
+                          <span>Editar cuentas</span>
+                        </button>
+                      )}
                     </div>
-
-                    {/* Datos Bancarios Copiables y Monto Unificado */}
-                    <div className="space-y-1.5">
-                      <div className="text-xs font-medium px-0.5 text-gray-800 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-gray-600"></span>
-                        <span>Datos para transferir ({formatTitleCase(selectedPaymentMethod?.nombre || metodoPago)}):</span>
-                      </div>
-
-                      {/* Monto exacto a pagar (Consolidado en una sola fila flex-row tanto en móvil como desktop) */}
-                      <div className="bg-white border border-gray-200 rounded-xl p-2 sm:p-2.5 px-3 flex flex-row items-center justify-between gap-2 shadow-xs">
-                        <div className="min-w-0">
-                          <span className="text-xs text-gray-500 font-normal block leading-tight">Monto a pagar:</span>
-                          <div className="font-mono text-base font-medium text-[#FF5200] leading-tight mt-0.5">
-                            ${cartTotals.totalUSD.toFixed(2)} <span className="text-xs text-[#FF5200]">USD</span>
-                          </div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <span className="text-xs text-gray-500 font-normal block leading-tight">
-                            En bolívares (Tasa BCV {formatVES(tasaBCV)}):
-                          </span>
-                          <div className="flex items-center justify-end mt-0.5">
-                            <span className="font-mono text-base font-medium text-[#FF5200] tracking-tight leading-tight">
-                              Bs. {formatVES(cartTotals.totalBS)}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyBankData(formatVES(cartTotals.totalBS), 'monto_bs')}
-                              className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] border border-gray-200 px-1.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer font-medium transition-all shadow-xs active:scale-95 shrink-0 ml-2.5 sm:ml-3"
-                              title="Copiar monto exacto en Bolívares para tu transferencia o Pago Móvil"
-                            >
-                              {copiedBankField === 'monto_bs' ? (
-                                <>
-                                  <Check size={10} className="text-emerald-600 stroke-[3]" />
-                                  <span className="text-emerald-700">¡Copiado!</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy size={10} />
-                                  <span>Copiar Bs</span>
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Tarjeta blanca con Banco, Teléfono y Cédula (padding interno reducido y separación compacta) */}
-                      <div className="bg-white border border-gray-200 rounded-xl p-2 sm:p-2.5 divide-y divide-gray-100 shadow-xs">
-                        {selectedPaymentMethod && selectedPaymentMethod.campos && selectedPaymentMethod.campos.length > 0 ? (
-                          selectedPaymentMethod.campos.map((campo, cIdx) => {
-                            const cleanLabel = formatBankLabel(campo.etiqueta);
-                            const cleanValue = formatBankValue(campo.valor);
-                            return (
-                              <div
-                                key={campo.id || `campo-${cIdx}`}
-                                className={`flex justify-between items-center gap-2 py-1.5 ${cIdx === 0 ? 'pt-0.5' : ''} ${cIdx === selectedPaymentMethod.campos.length - 1 ? 'pb-0.5' : ''}`}
-                              >
-                                <span className="text-[#555555] text-xs shrink-0 font-normal">
-                                  {cleanLabel}:
-                                </span>
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                  <span className="font-medium text-[#111111] font-mono truncate text-right text-xs">
-                                    {cleanValue}
-                                  </span>
-                                  {campo.copiable !== false && campo.valor && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCopyBankData(campo.valor, `field_${campo.id || cIdx}`)}
-                                      className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] px-1.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer shrink-0 font-medium border border-gray-200 active:scale-95 transition-all ml-1.5"
-                                    >
-                                      {copiedBankField === `field_${campo.id || cIdx}` ? (
-                                        <Check size={10} className="text-emerald-600 stroke-[2.5]" />
-                                      ) : (
-                                        <Copy size={10} />
-                                      )}
-                                      <span>{copiedBankField === `field_${campo.id || cIdx}` ? 'Copiado' : 'Copiar'}</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <p className="text-xs text-gray-500 py-1 text-center">
-                            No hay datos registrados para este método.
-                          </p>
-                        )}
-                      </div>
+                    <div className={`grid gap-1.5 sm:gap-2 ${availablePaymentMethods.length === 3 ? 'grid-cols-3' : (availablePaymentMethods.length <= 2 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-4')}`}>
+                      {availablePaymentMethods.map((method) => {
+                        const isSel = metodoPago.toLowerCase() === method.nombre.toLowerCase();
+                        return (
+                          <button
+                            key={method.id}
+                            type="button"
+                            onClick={() => setMetodoPago(method.nombre)}
+                            className={`py-2 px-1.5 sm:px-2.5 rounded-lg border text-center text-xs transition-all cursor-pointer truncate ${
+                              isSel
+                                ? 'bg-[#111111] text-white border-[#111111] font-medium shadow-xs'
+                                : 'bg-white border-gray-200 text-gray-600 font-normal hover:bg-gray-50 hover:text-[#111111]'
+                            }`}
+                          >
+                            {method.nombre}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* SECCIÓN 2: COMPROBANTE DE PAGO (TIRA HORIZONTAL DELGADA) */}
-                  {tipoConfirmacion === 'comprobante' && (
-                    <div className="bg-gray-50 border border-gray-200 rounded-xl sm:rounded-2xl p-2 sm:p-2.5 space-y-1.5">
-                      <label className="text-xs font-normal text-gray-700 flex items-center justify-between">
+                  {/* ========================================================= */}
+                  {/* TARJETA 2: DATOS PARA TRANSFERIR O PAGO EN TIENDA         */}
+                  {/* ========================================================= */}
+                  <div className="bg-white border border-gray-100 rounded-xl p-3.5 sm:p-4 space-y-3 shadow-sm">
+                    {metodoPago.toLowerCase() === 'pago en tienda' ? (
+                      <div className="text-center py-2 space-y-2">
+                        <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+                          <Store size={20} strokeWidth={1.8} />
+                        </div>
+                        <div>
+                          <h5 className="text-xs font-medium text-[#111111]">Retiro en tienda física</h5>
+                          <p className="text-xs text-gray-500 font-normal leading-relaxed max-w-sm mx-auto mt-1">
+                            Paga en efectivo o punto de venta al retirar tus productos en Moto Cristo.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-xs font-medium text-gray-800 flex items-center gap-1.5 pb-1 border-b border-gray-100">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#FF5200]"></span>
+                          <span>Datos para transferir ({formatTitleCase(selectedPaymentMethod?.nombre || metodoPago)}):</span>
+                        </div>
+
+                        {/* Montos consolidados con Lógica Condicional de Colores */}
+                        {(() => {
+                          const isBsPrimary = metodoPago.toLowerCase().includes('móvil') || 
+                                              metodoPago.toLowerCase().includes('movil') || 
+                                              metodoPago.toLowerCase().includes('transferencia');
+                          return (
+                            <div className="bg-gray-50/80 border border-gray-100 rounded-lg p-2.5 px-3 flex flex-row items-center justify-between gap-2 shadow-2xs">
+                              <div className="min-w-0">
+                                <span className="text-[11px] text-gray-500 font-normal block leading-tight">Monto a pagar:</span>
+                                <div className={`font-mono text-base font-medium leading-tight mt-0.5 ${!isBsPrimary ? 'text-[#FF5200]' : 'text-gray-900'}`}>
+                                  ${cartTotals.totalUSD.toFixed(2)} <span className="text-xs font-normal">USD</span>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="text-[11px] text-gray-500 font-normal block leading-tight">
+                                  En bolívares (Tasa BCV {formatVES(tasaBCV)}):
+                                </span>
+                                <div className="flex items-center justify-end mt-0.5">
+                                  <span className={`font-mono text-base font-medium tracking-tight leading-tight ${isBsPrimary ? 'text-[#FF5200]' : 'text-gray-900'}`}>
+                                    Bs. {formatVES(cartTotals.totalBS)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyBankData(formatVES(cartTotals.totalBS), 'monto_bs')}
+                                    className="text-[9.5px] bg-white hover:bg-gray-100 text-[#111111] border border-gray-200 px-1.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer font-medium transition-all shadow-2xs active:scale-95 shrink-0 ml-2 sm:ml-2.5"
+                                    title="Copiar monto exacto en Bolívares"
+                                  >
+                                    {copiedBankField === 'monto_bs' ? (
+                                      <>
+                                        <Check size={10} className="text-emerald-600 stroke-[3]" />
+                                        <span className="text-emerald-700">¡Copiado!</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy size={10} />
+                                        <span>Copiar Bs</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Lista de Datos Bancarios con etiqueta compacta 'Cuenta:' y valores sin mayúsculas sostenidas */}
+                        <div className="divide-y divide-gray-100 pt-0.5">
+                          {selectedPaymentMethod && selectedPaymentMethod.campos && selectedPaymentMethod.campos.length > 0 ? (
+                            selectedPaymentMethod.campos.map((campo, cIdx) => {
+                              const cleanLabel = formatBankLabel(campo.etiqueta);
+                              const cleanValue = formatBankValue(campo.valor);
+                              return (
+                                <div
+                                  key={campo.id || `campo-${cIdx}`}
+                                  className={`flex justify-between items-center gap-2 py-1.5 ${cIdx === 0 ? 'pt-0.5' : ''} ${cIdx === selectedPaymentMethod.campos.length - 1 ? 'pb-0.5' : ''}`}
+                                >
+                                  <span className="text-[#555555] text-xs shrink-0 font-normal">
+                                    {cleanLabel}:
+                                  </span>
+                                  <div className="flex items-center gap-1.5 min-w-0 overflow-hidden justify-end">
+                                    <span className="font-medium text-[#111111] font-mono truncate text-right text-xs" title={cleanValue}>
+                                      {cleanValue}
+                                    </span>
+                                    {campo.copiable !== false && campo.valor && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopyBankData(campo.valor, `field_${campo.id || cIdx}`)}
+                                        className="text-[9.5px] bg-gray-50 hover:bg-gray-100 text-[#111111] px-1.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer shrink-0 font-medium border border-gray-200 active:scale-95 transition-all ml-1"
+                                      >
+                                        {copiedBankField === `field_${campo.id || cIdx}` ? (
+                                          <Check size={10} className="text-emerald-600 stroke-[2.5]" />
+                                        ) : (
+                                          <Copy size={10} />
+                                        )}
+                                        <span>{copiedBankField === `field_${campo.id || cIdx}` ? 'Copiado' : 'Copiar'}</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="text-xs text-gray-500 py-1 text-center">
+                              No hay datos registrados para este método.
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* ========================================================= */}
+                  {/* TARJETA 3: ADJUNTAR COMPROBANTE DE PAGO                   */}
+                  {/* ========================================================= */}
+                  {tipoConfirmacion === 'comprobante' && metodoPago.toLowerCase() !== 'pago en tienda' && (
+                    <div className="bg-white border border-gray-100 rounded-xl p-3.5 sm:p-4 space-y-2.5 shadow-sm">
+                      <label className="text-xs font-medium text-gray-700 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <Receipt size={13} className="text-gray-700" />
                           <span>Adjuntar comprobante de pago *</span>
@@ -3907,12 +4457,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       </label>
 
                       {comprobanteUrl ? (
-                        <div className="bg-white border border-gray-200 rounded-xl p-1.5 px-2.5 flex items-center justify-between gap-2 shadow-2xs">
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 px-3 flex items-center justify-between gap-2 shadow-2xs">
                           <div className="flex items-center gap-2 overflow-hidden">
                             <img
                               src={comprobanteUrl}
                               alt="Comprobante"
-                              className="w-8 h-8 object-cover rounded-md border border-gray-200 shrink-0"
+                              className="w-9 h-9 object-cover rounded-md border border-gray-200 shrink-0"
                             />
                             <div className="overflow-hidden min-w-0">
                               <span className="text-xs font-medium text-[#111111] block truncate leading-tight">
@@ -3929,13 +4479,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               setComprobanteUrl(null);
                               setComprobanteFileName(null);
                             }}
-                            className="text-rose-600 hover:text-rose-700 text-[10px] font-medium py-0.5 px-2 rounded-md bg-rose-50 border border-rose-200 shrink-0 cursor-pointer"
+                            className="text-rose-600 hover:text-rose-700 text-[10px] font-medium py-1 px-2.5 rounded-md bg-rose-50 border border-rose-200 shrink-0 cursor-pointer transition-colors"
                           >
                             Cambiar
                           </button>
                         </div>
                       ) : (
-                        <label className="border border-dashed border-gray-300 hover:border-black bg-white hover:bg-gray-50 transition-all rounded-xl py-1.5 px-3 flex items-center justify-between cursor-pointer group shadow-2xs">
+                        <label className="border border-dashed border-gray-300 hover:border-black bg-gray-50/70 hover:bg-gray-100/70 transition-all rounded-lg py-2.5 px-3 flex items-center justify-between cursor-pointer group shadow-2xs">
                           <input
                             type="file"
                             accept="image/*"
@@ -3950,9 +4500,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             </div>
                           ) : (
                             <div className="flex items-center justify-between w-full gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-6 h-6 rounded-md bg-gray-100 text-[#111111] flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
-                                  <Upload size={12} />
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-7 h-7 rounded-md bg-white border border-gray-200 text-[#111111] flex items-center justify-center group-hover:scale-105 transition-transform shrink-0 shadow-2xs">
+                                  <Upload size={13} />
                                 </div>
                                 <span className="text-xs font-medium text-[#111111] truncate">
                                   Toca para subir captura o foto
@@ -3968,11 +4518,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   )}
 
-                  {/* SECCIÓN 4: RESUMEN AL FINAL */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl sm:rounded-2xl overflow-hidden transition-all shadow-xs">
+                  {/* ========================================================= */}
+                  {/* RESUMEN DE ORDEN (ACCORDION)                              */}
+                  {/* ========================================================= */}
+                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden transition-all shadow-sm">
                     <div
                       onClick={() => setIsOrderSummaryExpanded(!isOrderSummaryExpanded)}
-                      className="p-1.5 px-2.5 sm:p-2 sm:px-3 flex items-center justify-between text-[11px] gap-2 cursor-pointer hover:bg-gray-100 transition-colors select-none"
+                      className="p-2 px-3 sm:p-2.5 sm:px-3.5 flex items-center justify-between text-[11px] gap-2 cursor-pointer hover:bg-gray-50/80 transition-colors select-none"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="flex items-center -space-x-1 shrink-0">
@@ -4005,7 +4557,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           <span className="font-semibold text-[#111111] font-mono shrink-0">{cartTotals.totalUnits} items</span>
                           <span className="text-gray-300">•</span>
                           <span className="truncate">
-                            Envío: <strong className="text-[#111111] font-medium">{clienteNombre || 'Cliente'}</strong> ({agenciaSeleccionada})
+                            {metodoEntrega === 'retiro' ? (
+                              <span>Entrega: <strong className="text-[#111111] font-medium">Retiro en tienda (Mérida)</strong></span>
+                            ) : (
+                              <span>Envío: <strong className="text-[#111111] font-medium">{clienteNombre || 'Cliente'}</strong> ({agenciaSeleccionada})</span>
+                            )}
                           </span>
                         </div>
                       </div>
@@ -4015,13 +4571,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setCheckoutStep(1);
+                            setCheckoutStep(metodoEntrega === 'retiro' ? 0 : 1);
                           }}
                           className="text-[10px] text-amber-700 hover:text-amber-800 underline font-medium cursor-pointer"
                         >
                           Modificar
                         </button>
-                        <div className={`w-5 h-5 rounded-md bg-gray-200 flex items-center justify-center text-gray-600 transition-transform duration-200 ${
+                        <div className={`w-5 h-5 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 transition-transform duration-200 ${
                           isOrderSummaryExpanded ? 'rotate-180 text-amber-600' : ''
                         }`}>
                           <ChevronDown size={12} />
@@ -4030,7 +4586,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
 
                     {isOrderSummaryExpanded && (
-                      <div className="p-3 border-t border-gray-200 bg-white space-y-3 animate-fade-in text-xs">
+                      <div className="p-3 border-t border-gray-100 bg-gray-50/50 space-y-3 animate-fade-in text-xs">
                         <div className="space-y-1.5">
                           <span className="text-xs font-normal text-gray-600 block">
                             Productos en tu pedido ({cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'unidad' : 'unidades'}):
@@ -4041,7 +4597,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               return (
                                 <div
                                   key={`expanded-item-${item.product.id}-${idx}`}
-                                  className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-gray-50 border border-gray-200"
+                                  className="flex items-center justify-between gap-2 p-1.5 rounded-xl bg-white border border-gray-200"
                                 >
                                   <div className="flex items-center gap-2 min-w-0">
                                     <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 overflow-hidden shrink-0">
@@ -4071,99 +4627,126 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           </div>
                         </div>
 
-                        {/* Mini resumen de datos de envío */}
+                        {/* Mini resumen: Solo muestra datos de envío si es envío nacional */}
                         <div className="pt-2 border-t border-gray-200 space-y-1 text-[10.5px]">
-                          <span className="text-xs font-normal text-gray-600 block">
-                            Datos de envío registrados:
-                          </span>
-                          <div className="bg-gray-50 p-2 rounded-xl border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[#555555]">
-                            <div>
-                              <span className="text-gray-400 block text-[9px] font-normal">Destinatario:</span>
-                              <span className="text-[#111111] font-medium">{clienteNombre || 'Sin nombre'} ({clienteCedula || 'Sin cédula'})</span>
+                          {metodoEntrega === 'retiro' ? (
+                            <div className="bg-white p-2 rounded-xl border border-gray-200 flex items-center gap-2 text-[#555555]">
+                              <Store size={14} className="text-gray-700 shrink-0" />
+                              <div className="min-w-0">
+                                <span className="text-gray-400 block text-[9px] font-normal">Lugar de retiro:</span>
+                                <span className="text-[#111111] font-medium text-xs">Moto Cristo — Mérida, Venezuela</span>
+                              </div>
                             </div>
-                            <div>
-                              <span className="text-gray-400 block text-[9px] font-normal flex items-center gap-1">
-                                <img src="/whatsapp.png" alt="" className="w-3 h-3 object-contain shrink-0 inline" />
-                                <span>Teléfono / WhatsApp:</span>
+                          ) : (
+                            <>
+                              <span className="text-xs font-normal text-gray-600 block">
+                                Datos de envío registrados:
                               </span>
-                              <span className="text-[#111111] font-medium">{clienteTelefono || 'Sin teléfono'}</span>
-                            </div>
-                            <div className="sm:col-span-2">
-                              <span className="text-gray-400 block text-[9px] font-normal">Agencia y dirección:</span>
-                              <span className="text-[#111111] font-medium">{agenciaSeleccionada}: {direccionAgencia || 'Sin dirección especificada'}</span>
-                            </div>
+                              <div className="bg-white p-2 rounded-xl border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[#555555]">
+                                <div>
+                                  <span className="text-gray-400 block text-[9px] font-normal">Destinatario:</span>
+                                  <span className="text-[#111111] font-medium">{clienteNombre || 'Sin nombre'} ({clienteCedula || 'Sin cédula'})</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-400 block text-[9px] font-normal flex items-center gap-1">
+                                    <WhatsAppVectorIcon size={12} className="text-[#25D366] fill-current shrink-0 inline" />
+                                    <span>Teléfono / WhatsApp:</span>
+                                  </span>
+                                  <span className="text-[#111111] font-medium">{clienteTelefono || 'Sin teléfono'}</span>
+                                </div>
+                                <div className="sm:col-span-2">
+                                  <span className="text-gray-400 block text-[9px] font-normal">Agencia y dirección:</span>
+                                  <span className="text-[#111111] font-medium">{agenciaSeleccionada}: {direccionAgencia || 'Sin dirección especificada'}</span>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ========================================================= */}
+                  {/* BOTÓN FINAL: APARTAR POR WHATSAPP O CONFIRMAR PAGO       */}
+                  {/* ========================================================= */}
+                  {metodoPago.toLowerCase() === 'pago en tienda' ? (
+                    <div className="pt-1">
+                      <button
+                        type="submit"
+                        disabled={isSubmittingOrder}
+                        className="w-full py-3.5 bg-[#25D366] hover:bg-[#20ba59] active:scale-98 transition-all text-white font-medium text-xs sm:text-sm rounded-lg flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                      >
+                        <WhatsAppVectorIcon size={18} className="text-white fill-current shrink-0" />
+                        <span>Apartar por WhatsApp</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="pt-0.5 space-y-1">
+                      <button
+                        type="submit"
+                        disabled={isSubmittingOrder || isUploadingReceipt}
+                        className="w-full py-2.5 sm:py-3.5 bg-[#000000] hover:bg-neutral-800 disabled:opacity-50 text-white font-medium text-xs sm:text-sm rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
+                      >
+                        {isSubmittingOrder ? (
+                          <RotateCcw size={15} className="animate-spin text-white" />
+                        ) : (
+                          <CheckCircle2 size={15} className="text-white" />
+                        )}
+                        <span>
+                          {isSubmittingOrder
+                            ? 'Procesando pedido...'
+                            : 'Confirmar pago'}
+                        </span>
+                      </button>
+
+                      {/* Vía de escape y aclaratorias debajo del botón */}
+                      {tipoConfirmacion === 'comprobante' ? (
+                        <div className="space-y-0.5 text-center pt-0.5">
+                          <p className="text-xs text-gray-500 font-normal leading-tight px-1">
+                            Al confirmar tu orden, se abrirá WhatsApp con el resumen de tu compra para confirmar cada detalle y responder cualquier consulta si lo deseas.
+                          </p>
+
+                          <div className="pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setTipoConfirmacion('whatsapp')}
+                              className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#111111] transition-colors cursor-pointer group py-0.5 px-2 rounded-md hover:bg-gray-100"
+                            >
+                              <WhatsAppVectorIcon size={14} className="text-[#128C7E] fill-current shrink-0 group-hover:scale-110 transition-transform" />
+                              <span>
+                                ¿Tienes problemas para pagar?{' '}
+                                <span className="underline font-medium text-[#128C7E] group-hover:text-[#075E54]">
+                                  Escríbenos al WhatsApp
+                                </span>
+                              </span>
+                            </button>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* BOTÓN FINAL DE CONFIRMAR COMPRA */}
-                  <div className="pt-0.5 space-y-1">
-                    <button
-                      type="submit"
-                      disabled={isSubmittingOrder || isUploadingReceipt}
-                      className="w-full py-2.5 sm:py-3.5 bg-[#000000] hover:bg-neutral-800 disabled:opacity-50 text-white font-medium text-xs sm:text-sm rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
-                    >
-                      {isSubmittingOrder ? (
-                        <RotateCcw size={15} className="animate-spin text-white" />
                       ) : (
-                        <CheckCircle2 size={15} className="text-white" />
+                        <div className="space-y-0.5 text-center pt-0.5">
+                          <p className="text-xs text-gray-500 font-normal leading-tight px-1">
+                            Presiona confirmar para realizar el pago y concretar tu pedido con un asesor.
+                          </p>
+
+                          <div className="pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setTipoConfirmacion('comprobante')}
+                              className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-emerald-700 transition-colors cursor-pointer group py-0.5 px-2 rounded-md hover:bg-gray-100"
+                            >
+                              <CheckCircle2 size={12} className="text-emerald-600" />
+                              <span>
+                                Prefiero realizar el pago directo y{' '}
+                                <span className="underline font-medium text-emerald-700">
+                                  subir comprobante
+                                </span>
+                              </span>
+                            </button>
+                          </div>
+                        </div>
                       )}
-                      <span>
-                        {isSubmittingOrder
-                          ? 'Procesando pedido...'
-                          : 'Confirmar pago'}
-                      </span>
-                    </button>
-
-                    {/* Vía de escape y aclaratorias debajo del botón */}
-                    {tipoConfirmacion === 'comprobante' ? (
-                      <div className="space-y-0.5 text-center pt-0.5">
-                        <p className="text-xs text-gray-500 font-normal leading-tight px-1">
-                          Al confirmar tu orden, se abrirá WhatsApp con el resumen de tu compra para confirmar cada detalle y responder cualquier consulta si lo deseas.
-                        </p>
-
-                        <div className="pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => setTipoConfirmacion('whatsapp')}
-                            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#111111] transition-colors cursor-pointer group py-0.5 px-2 rounded-md hover:bg-gray-100"
-                          >
-                            <img src="/whatsapp.png" alt="WhatsApp" className="w-3.5 h-3.5 object-contain group-hover:scale-110 transition-transform shrink-0" />
-                            <span>
-                              ¿Tienes problemas para pagar?{' '}
-                              <span className="underline font-medium text-[#128C7E] group-hover:text-[#075E54]">
-                                Escríbenos al WhatsApp
-                              </span>
-                            </span>
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-0.5 text-center pt-0.5">
-                        <p className="text-xs text-gray-500 font-normal leading-tight px-1">
-                          Presiona confirmar para realizar el pago y concretar tu pedido con un asesor.
-                        </p>
-
-                        <div className="pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => setTipoConfirmacion('comprobante')}
-                            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-emerald-700 transition-colors cursor-pointer group py-0.5 px-2 rounded-md hover:bg-gray-100"
-                          >
-                            <CheckCircle2 size={12} className="text-emerald-600" />
-                            <span>
-                              Prefiero realizar el pago directo y{' '}
-                              <span className="underline font-medium text-emerald-700">
-                                subir comprobante
-                              </span>
-                            </span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
             </form>
@@ -4231,21 +4814,37 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
             {/* Order Details Card */}
             <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-left space-y-2 text-xs">
-              <div className="flex justify-between border-b border-gray-200 pb-2">
-                <span className="text-[#555555] font-normal">Cliente:</span>
-                <span className="font-medium text-[#111111]">{completedOrder.cliente_nombre}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-200 pb-2">
-                <span className="text-[#555555] font-normal">Cédula:</span>
-                <span className="font-medium font-mono text-[#111111]">{completedOrder.cliente_cedula}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-200 pb-2">
-                <span className="text-[#555555] font-normal">Teléfono:</span>
-                <span className="font-medium font-mono text-[#111111]">{completedOrder.cliente_telefono}</span>
-              </div>
+              {completedOrder.cliente_nombre && completedOrder.cliente_nombre !== 'Cliente (Retiro en tienda)' && (
+                <div className="flex justify-between border-b border-gray-200 pb-2">
+                  <span className="text-[#555555] font-normal">Cliente:</span>
+                  <span className="font-medium text-[#111111]">{completedOrder.cliente_nombre}</span>
+                </div>
+              )}
+              {completedOrder.cliente_cedula && completedOrder.cliente_cedula !== 'N/A' && (
+                <div className="flex justify-between border-b border-gray-200 pb-2">
+                  <span className="text-[#555555] font-normal">Cédula:</span>
+                  <span className="font-medium font-mono text-[#111111]">{completedOrder.cliente_cedula}</span>
+                </div>
+              )}
+              {completedOrder.cliente_telefono && completedOrder.cliente_telefono !== 'N/A' && (
+                <div className="flex justify-between border-b border-gray-200 pb-2">
+                  <span className="text-[#555555] font-normal">Teléfono:</span>
+                  <span className="font-medium font-mono text-[#111111]">{completedOrder.cliente_telefono}</span>
+                </div>
+              )}
               <div className="border-b border-gray-200 pb-2">
-                <span className="text-[#555555] font-normal block mb-0.5">Agencia de envío:</span>
-                <span className="font-medium text-[#111111] text-[11px] block">{completedOrder.direccion_agencia_envio}</span>
+                <span className="text-[#555555] font-normal block mb-0.5">
+                  {completedOrder.metodo_entrega === 'retiro' ? 'Método de entrega:' : 'Agencia de envío:'}
+                </span>
+                <span className="font-medium text-[#111111] text-[11px] block">
+                  {completedOrder.metodo_entrega === 'retiro'
+                    ? 'Retiro en tienda (Mérida) - Moto Cristo'
+                    : completedOrder.direccion_agencia_envio}
+                </span>
+              </div>
+              <div className="flex justify-between border-b border-gray-200 pb-2">
+                <span className="text-[#555555] font-normal">Método de pago:</span>
+                <span className="font-medium text-[#111111]">{completedOrder.metodo_pago}</span>
               </div>
               {completedOrder.referencia_pago && (
                 <div className="flex justify-between border-b border-gray-200 pb-2">
@@ -4277,7 +4876,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 className="w-full py-3.5 font-medium text-sm sm:text-base rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all bg-[#25D366] hover:bg-[#20ba5a] text-white border border-[#25D366]"
               >
                 <img src="/whatsapp.png" alt="WhatsApp" className="w-5 h-5 object-contain shrink-0 drop-shadow-xs" />
-                <span>Ir a WhatsApp y notificar pedido</span>
+                <span>
+                  {completedOrder.metodo_pago?.toLowerCase() === 'pago en tienda'
+                    ? 'Apartar por WhatsApp'
+                    : 'Ir a WhatsApp y notificar pedido'}
+                </span>
               </button>
 
               <button
@@ -4318,11 +4921,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           parentCatalogItem || {
             isGroup: hasValidGroup,
             coverProduct: quickViewProduct,
+            coverImage: parentCatalogItem?.coverImage,
             variants: qvVariants.length > 0 ? qvVariants : [activeQV],
             hasKit: Boolean(activeQV.grupo_tiene_kit),
             kitImage: activeQV.grupo_kit_imagen
           },
-          activeQV
+          activeQV,
+          !quickViewUserSelectedVariant && Boolean(parentCatalogItem?.coverImage)
         );
         const qvPriceUSD = activeQV.precio_venta_ref || activeQV.precio_mayor || 0;
         const qvPriceBS = qvPriceUSD * tasaBCV;
@@ -4332,9 +4937,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           <div 
             onClick={(e) => {
               if (e.target === e.currentTarget) {
-                setQuickViewProduct(null);
-                setQuickViewActiveVariant(null);
-                setQuickViewImageIndex(0);
+                closeQuickView();
               }
             }}
             className="fixed inset-0 z-[99999] bg-black/60 md:flex md:items-center md:justify-center p-0 md:p-5 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] overflow-hidden transition-all duration-200"
@@ -4345,38 +4948,24 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               onClick={(e) => e.stopPropagation()}
               className="relative bg-white w-full h-[100dvh] md:h-auto md:max-h-[calc(100dvh-2.5rem)] md:max-w-3xl rounded-none md:rounded-3xl md:border md:border-gray-200 flex flex-col md:flex-row overflow-hidden shadow-2xl animate-scale-up text-[#111111] cursor-default"
             >
-              {/* Botones de Cabecera Exclusivos para Desktop (Carrito y Cerrar) */}
-              <div className="hidden md:flex absolute top-4 right-4 z-30 items-center gap-2">
+              {/* Botones de Cabecera Exclusivos para Desktop (Compartir y Cerrar - Carrito en Desktop exclusivamente en Header principal) */}
+              <div className="hidden md:flex absolute top-4 right-4 z-30 items-center gap-3">
                 <button
-                  id="modal-cart-button-desktop"
                   type="button"
-                  onClick={() => {
-                    setQuickViewProduct(null);
-                    setQuickViewActiveVariant(null);
-                    setQuickViewImageIndex(0);
-                    setAddedHeaderDropdown(null);
-                    setIsCartOpen(true);
-                  }}
-                  className={`relative w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0 ${
-                    isCartBouncing ? 'scale-125 text-emerald-500' : ''
-                  }`}
-                  title={`Ver carrito de compras (${cartTotals.totalUnits} ${cartTotals.totalUnits === 1 ? 'artículo' : 'artículos'})`}
-                  aria-label={`Ver carrito de compras con ${cartTotals.totalUnits} artículos`}
+                  onClick={() => handleShareProduct(activeQV)}
+                  className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0"
+                  title="Compartir enlace directo del producto"
+                  aria-label="Compartir producto"
                 >
-                  <ShoppingCart size={17} className={`stroke-[2.2] transition-colors ${isCartBouncing ? 'text-emerald-500' : 'text-gray-700'}`} />
-                  {cartTotals.totalUnits > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center border border-white">
-                      {cartTotals.totalUnits}
-                    </span>
+                  {copiedShareLink ? (
+                    <Check size={16} className="text-emerald-600 stroke-[2.5] animate-scale-up" />
+                  ) : (
+                    <Share2 size={16} strokeWidth={2.2} className="text-gray-700 hover:text-black transition-colors" />
                   )}
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setQuickViewProduct(null);
-                    setQuickViewActiveVariant(null);
-                    setQuickViewImageIndex(0);
-                  }}
+                  onClick={closeQuickView}
                   className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0"
                   title="Cerrar ventana"
                   aria-label="Cerrar ventana"
@@ -4386,69 +4975,84 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               </div>
 
               {/* BARRA SUPERIOR FIJA EXCLUSIVA MÓVIL (HEADER DEL PRODUCTO TIPO SHEIN) */}
-              <header className="md:hidden sticky top-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-b border-gray-100 px-3 py-1.5 flex items-center justify-between shrink-0 h-10">
+              <header className="md:hidden sticky top-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-b border-gray-100 px-3 py-1.5 flex items-center justify-between shrink-0 h-11">
                 <button
                   type="button"
-                  onClick={() => {
-                    setQuickViewProduct(null);
-                    setQuickViewActiveVariant(null);
-                    setQuickViewImageIndex(0);
-                  }}
+                  onClick={closeQuickView}
                   className="p-1 -ml-1 text-gray-800 hover:text-black rounded-full active:scale-90 transition-transform cursor-pointer flex items-center justify-center shrink-0"
                   aria-label="Volver al catálogo"
                 >
                   <ArrowLeft size={19} strokeWidth={2.2} />
                 </button>
 
-                <div className="flex-1 px-2 text-center min-w-0">
+                <div className="flex-1 px-3 text-center min-w-0">
                   <span className="text-xs font-medium text-gray-800 truncate block whitespace-nowrap">
                     {formatTitleCase(activeQV.grupo_nombre || activeQV.nombre)}
                   </span>
                 </div>
 
-                <button
-                  id="modal-cart-button"
-                  type="button"
-                  onClick={() => {
-                    setQuickViewProduct(null);
-                    setQuickViewActiveVariant(null);
-                    setQuickViewImageIndex(0);
-                    setAddedHeaderDropdown(null);
-                    setIsCartOpen(true);
-                  }}
-                  className={`relative p-1 text-gray-800 hover:text-black rounded-full transition-all cursor-pointer flex items-center justify-center active:scale-90 shrink-0 ${
-                    isCartBouncing ? 'scale-125 text-emerald-500 rotate-6' : ''
-                  }`}
-                  aria-label={`Ver carrito con ${cartTotals.totalUnits} artículos`}
-                >
-                  <ShoppingCart size={18} className={`stroke-[2.2] transition-colors ${isCartBouncing ? 'text-emerald-500' : 'text-gray-800'}`} />
-                  {cartTotals.totalUnits > 0 && (
-                    <span className={`absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-600 text-white text-[8.5px] font-black flex items-center justify-center border border-white ${isCartBouncing ? 'animate-bounce scale-110' : 'animate-scale-up'}`}>
-                      {cartTotals.totalUnits}
-                    </span>
-                  )}
-                </button>
+                <div className="flex items-center gap-4 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleShareProduct(activeQV)}
+                    className="p-1 text-gray-800 hover:text-black rounded-full transition-all cursor-pointer flex items-center justify-center active:scale-90 shrink-0"
+                    title="Compartir enlace directo del producto"
+                    aria-label="Compartir enlace directo del producto"
+                  >
+                    {copiedShareLink ? (
+                      <Check size={18} className="text-emerald-600 stroke-[2.5] animate-scale-up" />
+                    ) : (
+                      <Share2 size={18} strokeWidth={2.2} className="text-gray-800 hover:text-black transition-colors" />
+                    )}
+                  </button>
+
+                  <button
+                    id="modal-cart-button"
+                    type="button"
+                    onClick={() => {
+                      closeQuickView();
+                      setAddedHeaderDropdown(null);
+                      setIsCartOpen(true);
+                    }}
+                    className={`relative p-1 text-gray-800 hover:text-black rounded-full transition-all cursor-pointer flex items-center justify-center active:scale-90 shrink-0 ${
+                      isCartBouncing ? 'scale-125 text-emerald-500 rotate-6' : ''
+                    }`}
+                    aria-label={`Ver carrito con ${cartTotals.totalUnits} artículos`}
+                  >
+                    <ShoppingCart size={18} className={`stroke-[2.2] transition-colors ${isCartBouncing ? 'text-emerald-500' : 'text-gray-800'}`} />
+                    {cartTotals.totalUnits > 0 && (
+                      <span className={`absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-600 text-white text-[8.5px] font-black flex items-center justify-center border border-white ${isCartBouncing ? 'animate-bounce scale-110' : 'animate-scale-up'}`}>
+                        {cartTotals.totalUnits}
+                      </span>
+                    )}
+                  </button>
+                </div>
               </header>
 
               {/* ÁREA DE SCROLL CENTRAL (MÓVIL Y DESKTOP) */}
               <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col md:flex-row w-full pb-2 md:pb-0">
-                {/* Columna Izquierda / Imagen: En móvil limitada a max-h-[36vh] y h-48 para que todo entre above the fold */}
-                <div id="quickview-main-image" className="w-full md:w-1/2 bg-white md:bg-gray-50 p-0 md:p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-gray-200 shrink-0">
+                {/* Columna Izquierda / Imagen: En móvil altura fija uniforme h-[45vh] max-h-80 para Zero CLS */}
+                <div id="quickview-main-image" className="w-full md:w-1/2 bg-white px-0 mx-0 p-0 md:p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-gray-200 shrink-0 h-[45vh] max-h-80 md:h-auto md:max-h-none overflow-hidden">
                   <StoreImageCarousel
                     images={qvImages}
                     currentIndex={quickViewImageIndex}
                     onIndexChange={setQuickViewImageIndex}
+                    onImageClick={() => {
+                      setLightboxImageIndex(quickViewImageIndex);
+                      setIsLightboxOpen(true);
+                    }}
                     altText={activeQV.nombre}
-                    className="h-48 max-h-[36vh] sm:h-60 md:h-84 md:max-h-none rounded-none md:rounded-xl"
-                    imageClassName="object-contain md:object-cover"
+                    containerClassName="w-full h-full flex flex-col bg-white"
+                    className="flex-1 min-h-0 w-full bg-white rounded-none md:rounded-xl md:h-84 md:max-h-none cursor-pointer"
+                    imageClassName="object-contain w-full h-full cursor-pointer"
                     showThumbnails={true}
                   />
                 </div>
 
                 {/* Columna Derecha / Información y Selector Visual de Variantes */}
-                <div className="w-full md:w-1/2 p-3 sm:p-4 md:p-6 flex flex-col justify-between space-y-2 md:space-y-4 md:pr-12 lg:pr-14 md:min-h-[480px]">
+                <div className="w-full md:w-1/2 p-3 sm:p-4 md:p-6 flex flex-col justify-between space-y-2 md:space-y-4 md:pr-10 lg:pr-12 md:min-h-[480px]">
                   {/* Bloque Superior Informativo: Título, Precios, Stock, Descripción */}
-                  <div className="space-y-1.5 sm:space-y-2 md:space-y-3">
+                  <div className="space-y-1.5 sm:space-y-2 md:space-y-3 md:pr-24">
                     {/* Título Principal */}
                     <h3 className="font-medium text-base sm:text-lg md:text-2xl tracking-tight text-[#111111] leading-tight">
                       {formatTitleCase(activeQV.grupo_nombre || activeQV.nombre)}
@@ -4491,13 +5095,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           <div className="flex items-center min-w-0 overflow-hidden whitespace-nowrap">
                             <span className="text-gray-600 font-normal flex items-center gap-1 shrink-0">
                               <Boxes size={11} className="text-amber-500 shrink-0" />
-                              <span>Modelo:</span>
+                              <span>{quickViewUserSelectedVariant ? 'Modelo:' : 'Opciones:'}</span>
                             </span>
                             <strong 
                               className="text-gray-900 font-medium truncate ml-1 min-w-0"
-                              title={formatTitleCase(activeQV.variante_nombre || activeQV.nombre)}
+                              title={quickViewUserSelectedVariant ? formatTitleCase(activeQV.variante_nombre || activeQV.nombre) : 'Portada (Elige un modelo)'}
                             >
-                              {formatTitleCase(activeQV.variante_nombre || activeQV.nombre)}
+                              {quickViewUserSelectedVariant ? formatTitleCase(activeQV.variante_nombre || activeQV.nombre) : 'Portada (Elige un modelo)'}
                             </strong>
                           </div>
 
@@ -4520,7 +5124,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         {/* Miniaturas de variantes para QuickView */}
                         <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 px-0.5 custom-scrollbar">
                           {qvVariants.map((v) => {
-                            const isSelected = activeQV.id === v.id;
+                            const isSelected = quickViewUserSelectedVariant && activeQV.id === v.id;
                             const rawThumb = v.es_kit 
                               ? (v.grupo_kit_imagen || parentCatalogItem?.kitImage || v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url)
                               : (v.variante_imagen_miniatura || v.imagen_portada || v.link || v.imagen_url);
@@ -4530,9 +5134,15 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                                 key={v.id}
                                 type="button"
                                 onClick={() => {
+                                  setQuickViewUserSelectedVariant(true);
                                   setQuickViewActiveVariant(v);
                                   setQuickViewImageIndex(0);
                                   setQuickViewQty(1);
+                                  try {
+                                    const url = new URL(window.location.href);
+                                    url.searchParams.set('p', v.id);
+                                    window.history.replaceState({ productId: v.id }, '', url.toString());
+                                  } catch {}
                                 }}
                                 className={`w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12 rounded-lg md:rounded-xl overflow-hidden shrink-0 border-2 transition-all cursor-pointer relative bg-gray-50 flex items-center justify-center ${
                                   isSelected
@@ -4665,6 +5275,148 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* ========================================================= */}
+            {/* MODAL DE PANTALLA COMPLETA (LIGHTBOX)                     */}
+            {/* ========================================================= */}
+            {isLightboxOpen && qvImages.length > 0 && (() => {
+              const currentLbIndex = ((lightboxImageIndex % qvImages.length) + qvImages.length) % qvImages.length;
+              const currentLbImage = qvImages[currentLbIndex];
+
+              const handleLbPrev = (e?: React.MouseEvent) => {
+                e?.stopPropagation();
+                if (qvImages.length <= 1) return;
+                const nextIdx = (currentLbIndex - 1 + qvImages.length) % qvImages.length;
+                setLightboxImageIndex(nextIdx);
+                setQuickViewImageIndex(nextIdx);
+              };
+
+              const handleLbNext = (e?: React.MouseEvent) => {
+                e?.stopPropagation();
+                if (qvImages.length <= 1) return;
+                const nextIdx = (currentLbIndex + 1) % qvImages.length;
+                setLightboxImageIndex(nextIdx);
+                setQuickViewImageIndex(nextIdx);
+              };
+
+              return (
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (e.target === e.currentTarget) {
+                      setIsLightboxOpen(false);
+                    }
+                  }}
+                  className="fixed inset-0 z-[100000] bg-black/95 flex items-center justify-center p-2 select-none touch-none backdrop-blur-sm animate-fade-in"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Visor de imagen a pantalla completa"
+                >
+                  {/* Botón de Cierre ('X' blanco y grande en la esquina superior derecha) */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsLightboxOpen(false);
+                    }}
+                    aria-label="Cerrar visor de pantalla completa"
+                    className="absolute top-4 right-4 z-[100002] w-12 h-12 rounded-full bg-black/60 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer transition-all active:scale-90 border border-white/20 shadow-xl"
+                  >
+                    <X size={28} strokeWidth={2.5} className="text-white" />
+                  </button>
+
+                  {/* Contador de fotos (ej: 1 / 4) y título de variante */}
+                  <div className="absolute top-4 left-4 z-[100002] flex items-center gap-2 pointer-events-none">
+                    <span className="px-3 py-1.5 rounded-full bg-black/60 border border-white/20 text-white text-xs sm:text-sm font-mono font-medium backdrop-blur-md shadow-md">
+                      {currentLbIndex + 1} / {qvImages.length}
+                    </span>
+                    {activeQV.variante_nombre && (
+                      <span className="hidden sm:inline-block px-3 py-1.5 rounded-full bg-black/40 border border-white/10 text-white/80 text-xs font-normal backdrop-blur-md truncate max-w-xs">
+                        {activeQV.variante_nombre}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Flechas Laterales de Navegación (Solo si hay múltiples imágenes) */}
+                  {qvImages.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleLbPrev}
+                        aria-label="Foto anterior"
+                        className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 z-[100002] w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-black/60 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer transition-all active:scale-90 border border-white/20 shadow-xl"
+                      >
+                        <ChevronLeft size={28} strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLbNext}
+                        aria-label="Siguiente foto"
+                        className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 z-[100002] w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-black/60 hover:bg-black/90 text-white flex items-center justify-center cursor-pointer transition-all active:scale-90 border border-white/20 shadow-xl"
+                      >
+                        <ChevronRight size={28} strokeWidth={2.5} />
+                      </button>
+                    </>
+                  )}
+
+                  {/* Contenedor de la Imagen con Detección de Toques Fuera y Swipe */}
+                  <div 
+                    className="w-full h-full flex items-center justify-center p-2 sm:p-6"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (e.target === e.currentTarget) {
+                        setIsLightboxOpen(false);
+                      }
+                    }}
+                    onTouchStart={(e) => setLightboxTouchStartX(e.targetTouches[0].clientX)}
+                    onTouchMove={(e) => setLightboxTouchEndX(e.targetTouches[0].clientX)}
+                    onTouchEnd={() => {
+                      if (lightboxTouchStartX === null || lightboxTouchEndX === null) return;
+                      const diff = lightboxTouchStartX - lightboxTouchEndX;
+                      if (diff > 40) {
+                        handleLbNext();
+                      } else if (diff < -40) {
+                        handleLbPrev();
+                      }
+                      setLightboxTouchStartX(null);
+                      setLightboxTouchEndX(null);
+                    }}
+                  >
+                    <img
+                      src={currentLbImage}
+                      alt={activeQV.nombre}
+                      className="w-full h-full object-contain pointer-events-auto max-h-[92vh] max-w-[95vw] transition-transform duration-300 select-none"
+                      draggable={false}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+
+                  {/* Miniaturas en carrusel inferior (si hay más de 1 imagen) */}
+                  {qvImages.length > 1 && (
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[100002] flex items-center gap-2 max-w-[90vw] overflow-x-auto p-1.5 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-md custom-scrollbar">
+                      {qvImages.map((img, idx) => (
+                        <button
+                          key={`lb-thumb-${idx}`}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLightboxImageIndex(idx);
+                            setQuickViewImageIndex(idx);
+                          }}
+                          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden border transition-all cursor-pointer shrink-0 ${
+                            idx === currentLbIndex 
+                              ? 'border-[#FF5200] ring-2 ring-[#FF5200] scale-105 opacity-100' 
+                              : 'border-white/20 opacity-50 hover:opacity-100 hover:border-white/50'
+                          }`}
+                        >
+                          <img src={img} alt="" className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
@@ -4812,9 +5564,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               type="button"
               onClick={() => {
                 setAddedHeaderDropdown(null);
-                setQuickViewProduct(null);
-                setQuickViewActiveVariant(null);
-                setQuickViewImageIndex(0);
+                closeQuickView();
                 setIsCartOpen(true);
               }}
               className="flex-1 py-1.5 px-2 bg-white hover:bg-gray-100 text-[#111111] text-xs font-medium rounded-lg transition-colors text-center cursor-pointer shadow-xs"
@@ -4867,6 +5617,20 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* Toast flotante de "Enlace copiado" */}
+      {showShareToast && (
+        <aside
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100002] bg-[#111111] text-white text-xs py-2 px-3.5 rounded-full shadow-2xl flex items-center gap-2 animate-scale-up pointer-events-none border border-neutral-700/80"
+        >
+          <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+            <Check size={11} strokeWidth={3} />
+          </div>
+          <span className="font-medium text-white tracking-tight">Enlace copiado</span>
+        </aside>
       )}
     </div>
   );

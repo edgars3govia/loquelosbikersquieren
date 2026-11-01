@@ -203,6 +203,7 @@ export interface PedidoTienda {
   cliente_cedula: string;
   cliente_telefono: string;
   direccion_agencia_envio: string;
+  metodo_entrega?: 'retiro' | 'envio';
   items: PedidoTiendaItem[];
   tasaBCV: number;
   totalUSD: number;

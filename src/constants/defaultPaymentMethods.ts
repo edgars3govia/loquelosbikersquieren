@@ -22,21 +22,9 @@ export const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = [
     instrucciones: 'Transferencia bancaria directa en Bolívares a la tasa oficial.',
     campos: [
       { id: 'f1', etiqueta: 'Banco:', valor: 'Banesco', copiable: false },
-      { id: 'f2', etiqueta: 'Número de cuenta:', valor: '0134-0123-45-0123456789', copiable: true },
+      { id: 'f2', etiqueta: 'Cuenta:', valor: '0134-0123-45-0123456789', copiable: true },
       { id: 'f3', etiqueta: 'Beneficiario:', valor: 'Lo Que Los Bikers Quieren', copiable: false },
       { id: 'f4', etiqueta: 'RIF:', valor: 'J-50000000-0', copiable: true }
-    ]
-  },
-  {
-    id: 'zinli',
-    nombre: 'Zinli',
-    activo: true,
-    moneda: 'USD',
-    instrucciones: 'Envía el monto exacto en USD a través de tu billetera Zinli sin comisiones.',
-    campos: [
-      { id: 'f1', etiqueta: 'Correo Zinli:', valor: 'pagos@loquelosbikersquieren.com', copiable: true },
-      { id: 'f2', etiqueta: 'Titular:', valor: 'Lo Que Los Bikers Quieren', copiable: false },
-      { id: 'f3', etiqueta: 'Moneda:', valor: 'Dólares (USD)', copiable: false }
     ]
   },
   {

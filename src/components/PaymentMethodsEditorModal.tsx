@@ -30,9 +30,10 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
   methods,
   onSaveMethods
 }) => {
-  const [editingMethods, setEditingMethods] = useState<PaymentMethodConfig[]>(() => 
-    methods && methods.length > 0 ? JSON.parse(JSON.stringify(methods)) : JSON.parse(JSON.stringify(DEFAULT_PAYMENT_METHODS))
-  );
+  const [editingMethods, setEditingMethods] = useState<PaymentMethodConfig[]>(() => {
+    const list = methods && methods.length > 0 ? JSON.parse(JSON.stringify(methods)) : JSON.parse(JSON.stringify(DEFAULT_PAYMENT_METHODS));
+    return list.filter((m: PaymentMethodConfig) => m.id !== 'zinli' && m.nombre.toLowerCase() !== 'zinli');
+  });
   const [selectedMethodId, setSelectedMethodId] = useState<string>(() => 
     (methods && methods.length > 0 ? methods[0].id : DEFAULT_PAYMENT_METHODS[0].id)
   );
@@ -42,9 +43,10 @@ export const PaymentMethodsEditorModal: React.FC<PaymentMethodsEditorModalProps>
 
   React.useEffect(() => {
     if (isOpen) {
-      const initial = methods && methods.length > 0 
+      const initialRaw = methods && methods.length > 0 
         ? JSON.parse(JSON.stringify(methods)) 
         : JSON.parse(JSON.stringify(DEFAULT_PAYMENT_METHODS));
+      const initial = initialRaw.filter((m: PaymentMethodConfig) => m.id !== 'zinli' && m.nombre.toLowerCase() !== 'zinli');
       setEditingMethods(initial);
       if (initial.length > 0 && !initial.some((m: PaymentMethodConfig) => m.id === selectedMethodId)) {
         setSelectedMethodId(initial[0].id);
