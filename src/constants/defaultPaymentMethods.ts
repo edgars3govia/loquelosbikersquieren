@@ -22,7 +22,7 @@ export const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = [
     instrucciones: 'Transferencia bancaria directa en Bolívares a la tasa oficial.',
     campos: [
       { id: 'f1', etiqueta: 'Banco:', valor: 'Banesco', copiable: false },
-      { id: 'f2', etiqueta: 'Cta Banesco:', valor: '0134-0123-45-0123456789', copiable: true },
+      { id: 'f2', etiqueta: 'Número de cuenta:', valor: '0134-0123-45-0123456789', copiable: true },
       { id: 'f3', etiqueta: 'Beneficiario:', valor: 'Lo Que Los Bikers Quieren', copiable: false },
       { id: 'f4', etiqueta: 'RIF:', valor: 'J-50000000-0', copiable: true }
     ]

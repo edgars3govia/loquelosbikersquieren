@@ -109,6 +109,107 @@ const formatCategorySentenceCase = (text?: string): string => {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 };
 
+/**
+ * Formatea valores bancarios para erradicar mayúsculas sostenidas ("MERCANTIL" -> "Mercantil", "EDGAR CONTRERAS" -> "Edgar Contreras")
+ * preservando números de cuenta, teléfonos, correos y prefijos de cédula/RIF (V- / J-).
+ */
+const formatBankValue = (value?: string): string => {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  // Si es un número puro, teléfono, cuenta bancaria o formato numérico con guiones/puntos: no alterar
+  if (/^[\d\s\-().+]+$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Si contiene formato de cédula o RIF tipo "V-12345678", "V12345678", "J-12345678"
+  if (/^[vVeEjJgG]-?\s*[\d\s.]+$/i.test(trimmed)) {
+    const prefix = trimmed.charAt(0).toUpperCase();
+    const rest = trimmed.slice(1).replace(/^[\s-]+/, '').trim();
+    return `${prefix}-${rest}`;
+  }
+
+  // Si alguien escribió "CEDULA V: 12345" o "V: 12345" en el valor
+  if (/^(c[eé]dula\s*)?[vVeEjJgG]:?\s*[\d\s.]+$/i.test(trimmed)) {
+    const match = trimmed.match(/([vVeEjJgG]):?\s*([\d\s.]+)$/i);
+    if (match) {
+      return `${match[1].toUpperCase()}-${match[2].trim()}`;
+    }
+  }
+
+  // Si es un correo electrónico
+  if (trimmed.includes('@') && !trimmed.includes(' ')) {
+    return trimmed.toLowerCase();
+  }
+
+  // Si es una dirección de billetera cripto (alfanumérica larga)
+  if (/^[a-zA-Z0-9]{20,}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Para nombres de personas, bancos o textos generales ("MERCANTIL", "EDGAR CONTRERAS")
+  const lowercaseWords = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'en', 'y', 'o', 'por', 'a']);
+  return trimmed
+    .toLowerCase()
+    .split(' ')
+    .filter(Boolean)
+    .map((word, index) => {
+      // Si la palabra es un prefijo de cédula pegado a números (ej. "V-12345")
+      if (/^[vVeEjJgG]-?\d+$/i.test(word)) {
+        return word.charAt(0).toUpperCase() + '-' + word.slice(1).replace(/^-/, '');
+      }
+      if (/^\d+$/.test(word)) {
+        return word;
+      }
+      if (index > 0 && lowercaseWords.has(word)) {
+        return word;
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+};
+
+/**
+ * Formatea y normaliza las etiquetas de los datos bancarios eliminando mayúsculas sostenidas
+ * ("CEDULA V:" -> "Cédula", "BANCO:" -> "Banco") y corrigiendo textos desalineados ("Cta Banesco:" -> "Número de cuenta").
+ */
+const formatBankLabel = (rawLabel?: string): string => {
+  if (!rawLabel) return '';
+  let label = rawLabel.replace(/:+$/, '').trim();
+
+  // Corregir bug si la etiqueta dice "Cta Banesco" o similar
+  if (/^(cta|cuenta)\s+banesco$/i.test(label) || /^(cta|cuenta)\s+banco$/i.test(label) || /^cta\b/i.test(label)) {
+    return 'Número de cuenta';
+  }
+
+  // Normalizar variaciones de Cédula
+  if (/^c[eé]dula(\s*v)?$/i.test(label) || /^c[eé]dula\s*v:?$/i.test(label)) {
+    return 'Cédula';
+  }
+  if (/^c[eé]dula\s*\/\s*rif$/i.test(label)) {
+    return 'Cédula / RIF';
+  }
+  if (/^rif$/i.test(label)) {
+    return 'RIF';
+  }
+  if (/^titular$/i.test(label)) {
+    return 'Titular';
+  }
+  if (/^beneficiario$/i.test(label)) {
+    return 'Beneficiario';
+  }
+  if (/^banco$/i.test(label)) {
+    return 'Banco';
+  }
+  if (/^tel[eé]fono$/i.test(label)) {
+    return 'Teléfono';
+  }
+
+  // Capitalización simple para cualquier otra etiqueta
+  return label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
+};
+
 // ============================================================================
 // COMPONENTE: CARRUSEL DE IMÁGENES MULTI-FOTO CON FLECHAS, SWIPE Y MINIATURAS
 // ============================================================================
@@ -612,9 +713,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     setIsHeaderVisible(true);
 
     const modalCartBtn = document.getElementById('modal-cart-button');
-    const isModalCartActive = Boolean(modalCartBtn && modalCartBtn.offsetParent !== null);
-    const cartBtn = isModalCartActive
+    const modalCartBtnDesktop = document.getElementById('modal-cart-button-desktop');
+    const activeModalCart = (modalCartBtn && modalCartBtn.offsetParent !== null)
       ? modalCartBtn
+      : (modalCartBtnDesktop && modalCartBtnDesktop.offsetParent !== null ? modalCartBtnDesktop : null);
+    const cartBtn = activeModalCart
+      ? activeModalCart
       : ((window.innerWidth < 768 ? document.getElementById('header-cart-button-mobile') : document.getElementById('header-cart-button')) || document.getElementById('header-cart-button') || document.getElementById('header-cart-button-mobile'));
     const cartRect = cartBtn
       ? cartBtn.getBoundingClientRect()
@@ -669,8 +773,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       setTimeout(() => setIsCartBouncing(false), 450);
 
       // Calcular posición anclada exacta debajo del botón del carrito visible (Modal o Header)
-      const currentCartBtn = isModalCartActive
-        ? modalCartBtn
+      const currentModalCart = (document.getElementById('modal-cart-button') && document.getElementById('modal-cart-button')!.offsetParent !== null)
+        ? document.getElementById('modal-cart-button')
+        : ((document.getElementById('modal-cart-button-desktop') && document.getElementById('modal-cart-button-desktop')!.offsetParent !== null)
+            ? document.getElementById('modal-cart-button-desktop')
+            : null);
+      const currentCartBtn = currentModalCart
+        ? currentModalCart
         : ((window.innerWidth < 768 ? document.getElementById('header-cart-button-mobile') : document.getElementById('header-cart-button')) || document.getElementById('header-cart-button') || document.getElementById('header-cart-button-mobile'));
       if (currentCartBtn) {
         const cRect = currentCartBtn.getBoundingClientRect();
@@ -2968,6 +3077,29 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 </span>
               </div>
 
+              {/* Botón Directo al Carrito en Menú Móvil */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  setIsCartOpen(true);
+                }}
+                className="w-full py-2.5 px-3 rounded-xl bg-black hover:bg-neutral-800 text-white text-xs font-medium flex items-center justify-between cursor-pointer shadow-sm transition-all active:scale-98"
+                aria-label="Ir al carrito"
+              >
+                <div className="flex items-center gap-2">
+                  <ShoppingCart size={15} />
+                  <span>Ver carrito de compras</span>
+                </div>
+                {cartTotals.totalUnits > 0 ? (
+                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold">
+                    {cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'artículo' : 'artículos'}
+                  </span>
+                ) : (
+                  <span className="text-gray-400 text-[10px]">0 artículos</span>
+                )}
+              </button>
+
               {/* Categorías y Subcategorías */}
               <div>
                 <h4 className="text-[11px] font-medium text-gray-400 mb-2 px-1">
@@ -3170,7 +3302,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsCartOpen(false);
           }}
-          className="fixed inset-0 z-[99999] bg-black/60 flex justify-end animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] cursor-pointer"
+          className="fixed inset-0 z-[100010] bg-black/60 flex justify-end animate-fade-in pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] cursor-pointer"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
@@ -3394,11 +3526,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             className="bg-white sm:border sm:border-gray-200 rounded-none sm:rounded-3xl w-full h-full sm:h-auto max-w-2xl sm:max-h-[calc(100dvh-2.5rem)] flex flex-col overflow-y-auto sm:overflow-hidden shadow-2xl animate-scale-up my-auto text-[#111111] cursor-default"
           >
             {/* Modal Header: Título y Ruta de Pasos */}
-            <div className="p-3.5 sm:p-4 border-b border-gray-200 bg-gray-50 space-y-2.5">
+            <div className="p-2.5 sm:p-4 border-b border-gray-200 bg-gray-50 space-y-1.5 sm:space-y-2.5">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-2xl bg-[#000000] text-white flex items-center justify-center font-black shrink-0 shadow-xs">
-                    <Truck size={17} />
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl sm:rounded-2xl bg-[#000000] text-white flex items-center justify-center font-black shrink-0 shadow-xs">
+                    <Truck size={15} />
                   </div>
                   <div>
                     <EditableStoreText
@@ -3407,7 +3539,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       isAdmin={isAdmin}
                       onOpenEditor={handleOpenTextEditorFor}
                       as="h3"
-                      className="font-medium text-base sm:text-lg text-[#111111] leading-none"
+                      className="font-medium text-sm sm:text-lg text-[#111111] leading-none"
                     />
                     <EditableStoreText
                       textKey="checkoutModalSubtitle"
@@ -3415,24 +3547,38 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       isAdmin={isAdmin}
                       onOpenEditor={handleOpenTextEditorFor}
                       as="p"
-                      className="text-xs text-gray-500 font-normal mt-0.5"
+                      className="text-[11px] sm:text-xs text-gray-500 font-normal mt-0.5 leading-none"
                     />
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsCheckoutOpen(false)}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
-                  title="Cerrar ventana"
-                  aria-label="Cerrar ventana"
-                >
-                  <X size={17} strokeWidth={2} />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCheckoutOpen(false);
+                      setIsCartOpen(true);
+                    }}
+                    className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
+                    title="Volver al carrito"
+                    aria-label="Volver al carrito"
+                  >
+                    <ShoppingCart size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCheckoutOpen(false)}
+                    className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
+                    title="Cerrar ventana"
+                    aria-label="Cerrar ventana"
+                  >
+                    <X size={15} strokeWidth={2} />
+                  </button>
+                </div>
               </div>
 
-              {/* Barra de Ruta (Pasos 1 y 2 - Estilo Neutro Minimalista) */}
-              <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-2 px-3 text-xs font-medium shadow-xs">
+              {/* Barra de Ruta (Pasos 1 y 2 - Estilo Neutro Minimalista y Compacto) */}
+              <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg sm:rounded-xl py-1 px-2.5 sm:p-2 sm:px-3 text-xs font-medium shadow-xs">
                 <button
                   type="button"
                   onClick={() => {
@@ -3443,12 +3589,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     checkoutStep === 1 ? 'text-[#111111] font-semibold' : 'text-gray-600 hover:text-black font-normal'
                   }`}
                 >
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-medium ${
-                    checkoutStep === 1 ? 'bg-[#000000] text-white' : 'bg-[#000000] text-white'
-                  }`}>
+                  <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium bg-[#000000] text-white">
                     {checkoutStep === 2 ? '✓' : '1'}
                   </span>
-                  <span className="text-xs font-medium">1. Llenar datos para el envío</span>
+                  <span className="text-[11px] sm:text-xs font-medium">1. Envío</span>
                 </button>
 
                 <div className="flex-1 mx-2 sm:mx-3 h-0.5 bg-gray-200 relative">
@@ -3458,18 +3602,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <div className={`flex items-center gap-1.5 ${
                   checkoutStep === 2 ? 'text-[#111111] font-semibold' : 'text-gray-400'
                 }`}>
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-medium ${
+                  <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium ${
                     checkoutStep === 2 ? 'bg-[#000000] text-white' : 'bg-gray-200 text-gray-600'
                   }`}>
                     2
                   </span>
-                  <span className="text-xs font-medium">2. Pago y confirmación</span>
+                  <span className="text-[11px] sm:text-xs font-medium">2. Pago</span>
                 </div>
               </div>
             </div>
 
             {/* Form & Items */}
-            <form onSubmit={handleSubmitOrder} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar">
+            <form onSubmit={handleSubmitOrder} className="p-3 sm:p-6 overflow-y-auto space-y-3 sm:space-y-4 flex-1 custom-scrollbar">
               {/* Form Error Banner */}
               {orderFormError && (
                 <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs font-normal flex items-center gap-2.5 animate-shake">
@@ -3619,9 +3763,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               {/* PASO 2: PAGO Y CONFIRMACIÓN                               */}
               {/* ========================================================= */}
               {checkoutStep === 2 && (
-                <div className="space-y-3 animate-fade-in">
+                <div className="space-y-2 sm:space-y-3 animate-fade-in">
                   {/* SECCIÓN 1: MÉTODOS DE PAGO Y DATOS BANCARIOS */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3 space-y-2.5">
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 space-y-2 sm:space-y-2.5">
                     {/* Botones de Métodos de Pago */}
                     <div>
                       <div className="flex items-center justify-between pb-1 flex-wrap gap-1">
@@ -3648,7 +3792,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               key={method.id}
                               type="button"
                               onClick={() => setMetodoPago(method.nombre)}
-                              className={`py-2 px-2.5 rounded-lg border text-center text-xs transition-all cursor-pointer ${
+                              className={`py-1.5 px-2 rounded-lg border text-center text-xs transition-all cursor-pointer ${
                                 isSel
                                   ? 'bg-[#111111] text-white border-[#111111] font-medium shadow-xs'
                                   : 'bg-white border-gray-200 text-gray-600 font-normal hover:bg-gray-100 hover:text-[#111111]'
@@ -3662,42 +3806,42 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
 
                     {/* Datos Bancarios Copiables y Monto Unificado */}
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <div className="text-xs font-medium px-0.5 text-gray-800 flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-gray-600"></span>
-                        <span>Datos para transferir ({selectedPaymentMethod?.nombre || metodoPago}):</span>
+                        <span>Datos para transferir ({formatTitleCase(selectedPaymentMethod?.nombre || metodoPago)}):</span>
                       </div>
 
-                      {/* Monto exacto a pagar (USD y Bs BCV) */}
-                      <div className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs shadow-xs">
-                        <div>
-                          <span className="text-xs text-gray-500 font-normal block">Monto exacto a pagar:</span>
-                          <div className="font-mono text-base sm:text-lg font-semibold text-[#FF5200] leading-tight mt-0.5">
-                            ${cartTotals.totalUSD.toFixed(2)} <span className="text-xs font-medium text-[#FF5200]">USD</span>
+                      {/* Monto exacto a pagar (Consolidado en una sola fila flex-row tanto en móvil como desktop) */}
+                      <div className="bg-white border border-gray-200 rounded-xl p-2 sm:p-2.5 px-3 flex flex-row items-center justify-between gap-2 shadow-xs">
+                        <div className="min-w-0">
+                          <span className="text-xs text-gray-500 font-normal block leading-tight">Monto a pagar:</span>
+                          <div className="font-mono text-base font-medium text-[#FF5200] leading-tight mt-0.5">
+                            ${cartTotals.totalUSD.toFixed(2)} <span className="text-xs text-[#FF5200]">USD</span>
                           </div>
                         </div>
-                        <div className="sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-100">
-                          <span className="text-xs text-gray-500 font-normal block">
+                        <div className="text-right shrink-0">
+                          <span className="text-xs text-gray-500 font-normal block leading-tight">
                             En bolívares (Tasa BCV {formatVES(tasaBCV)}):
                           </span>
-                          <div className="flex items-center sm:justify-end gap-2 mt-0.5">
-                            <span className="font-mono text-base sm:text-lg font-semibold text-[#FF5200] tracking-tight leading-tight">
+                          <div className="flex items-center justify-end mt-0.5">
+                            <span className="font-mono text-base font-medium text-[#FF5200] tracking-tight leading-tight">
                               Bs. {formatVES(cartTotals.totalBS)}
                             </span>
                             <button
                               type="button"
                               onClick={() => handleCopyBankData(formatVES(cartTotals.totalBS), 'monto_bs')}
-                              className="text-[10px] bg-gray-100 hover:bg-gray-200 text-[#111111] border border-gray-200 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer font-medium transition-all shadow-xs active:scale-95 shrink-0"
+                              className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] border border-gray-200 px-1.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer font-medium transition-all shadow-xs active:scale-95 shrink-0 ml-2.5 sm:ml-3"
                               title="Copiar monto exacto en Bolívares para tu transferencia o Pago Móvil"
                             >
                               {copiedBankField === 'monto_bs' ? (
                                 <>
-                                  <Check size={11} className="text-emerald-600 stroke-[3]" />
+                                  <Check size={10} className="text-emerald-600 stroke-[3]" />
                                   <span className="text-emerald-700">¡Copiado!</span>
                                 </>
                               ) : (
                                 <>
-                                  <Copy size={11} />
+                                  <Copy size={10} />
                                   <span>Copiar Bs</span>
                                 </>
                               )}
@@ -3706,33 +3850,36 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         </div>
                       </div>
 
-                      {/* Campos bancarios copiables */}
-                      <div className="space-y-1.5 text-[11px]">
+                      {/* Tarjeta blanca con Banco, Teléfono y Cédula (padding interno reducido y separación compacta) */}
+                      <div className="bg-white border border-gray-200 rounded-xl p-2 sm:p-2.5 divide-y divide-gray-100 shadow-xs">
                         {selectedPaymentMethod && selectedPaymentMethod.campos && selectedPaymentMethod.campos.length > 0 ? (
                           selectedPaymentMethod.campos.map((campo, cIdx) => {
-                            const cleanLabel = (campo.etiqueta || '').replace(/:+$/, '').trim();
+                            const cleanLabel = formatBankLabel(campo.etiqueta);
+                            const cleanValue = formatBankValue(campo.valor);
                             return (
                               <div
                                 key={campo.id || `campo-${cIdx}`}
-                                className="flex justify-between items-center bg-white p-2 px-3 rounded-xl border border-gray-200 gap-2 shadow-xs"
+                                className={`flex justify-between items-center gap-2 py-1.5 ${cIdx === 0 ? 'pt-0.5' : ''} ${cIdx === selectedPaymentMethod.campos.length - 1 ? 'pb-0.5' : ''}`}
                               >
-                                <span className="text-[#555555] text-[10.5px] shrink-0 font-normal">{cleanLabel}:</span>
+                                <span className="text-[#555555] text-xs shrink-0 font-normal">
+                                  {cleanLabel}:
+                                </span>
                                 <div className="flex items-center gap-2 overflow-hidden">
-                                  <span className="font-semibold text-[#111111] font-mono truncate text-right text-xs">
-                                    {campo.valor}
+                                  <span className="font-medium text-[#111111] font-mono truncate text-right text-xs">
+                                    {cleanValue}
                                   </span>
                                   {campo.copiable !== false && campo.valor && (
                                     <button
                                       type="button"
                                       onClick={() => handleCopyBankData(campo.valor, `field_${campo.id || cIdx}`)}
-                                      className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer shrink-0 font-medium border border-gray-200"
+                                      className="text-[9.5px] bg-gray-100 hover:bg-gray-200 text-[#111111] px-1.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer shrink-0 font-medium border border-gray-200 active:scale-95 transition-all ml-1.5"
                                     >
                                       {copiedBankField === `field_${campo.id || cIdx}` ? (
-                                        <Check size={10} className="text-emerald-600" />
+                                        <Check size={10} className="text-emerald-600 stroke-[2.5]" />
                                       ) : (
                                         <Copy size={10} />
                                       )}
-                                      <span>{copiedBankField === `field_${campo.id || cIdx}` ? '¡Copiado!' : 'Copiar'}</span>
+                                      <span>{copiedBankField === `field_${campo.id || cIdx}` ? 'Copiado' : 'Copiar'}</span>
                                     </button>
                                   )}
                                 </div>
@@ -3740,7 +3887,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             );
                           })
                         ) : (
-                          <p className="text-[10.5px] text-[#555555] py-1">
+                          <p className="text-xs text-gray-500 py-1 text-center">
                             No hay datos registrados para este método.
                           </p>
                         )}
@@ -3748,31 +3895,31 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     </div>
                   </div>
 
-                  {/* SECCIÓN 2: COMPROBANTE DE PAGO */}
+                  {/* SECCIÓN 2: COMPROBANTE DE PAGO (TIRA HORIZONTAL DELGADA) */}
                   {tipoConfirmacion === 'comprobante' && (
-                    <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3 space-y-2">
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl sm:rounded-2xl p-2 sm:p-2.5 space-y-1.5">
                       <label className="text-xs font-normal text-gray-700 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <Receipt size={13} className="text-gray-700" />
-                          <span>Adjuntar comprobante de pago (captura o foto) *</span>
+                          <span>Adjuntar comprobante de pago *</span>
                         </span>
                         <span className="text-[10px] text-gray-400 font-normal">Requerido</span>
                       </label>
 
                       {comprobanteUrl ? (
-                        <div className="bg-white border border-gray-200 rounded-xl p-2.5 flex items-center justify-between gap-3 shadow-xs">
-                          <div className="flex items-center gap-2.5 overflow-hidden">
+                        <div className="bg-white border border-gray-200 rounded-xl p-1.5 px-2.5 flex items-center justify-between gap-2 shadow-2xs">
+                          <div className="flex items-center gap-2 overflow-hidden">
                             <img
                               src={comprobanteUrl}
-                              alt="Comprobante de pago"
-                              className="w-11 h-11 object-cover rounded-lg border border-gray-200 shrink-0"
+                              alt="Comprobante"
+                              className="w-8 h-8 object-cover rounded-md border border-gray-200 shrink-0"
                             />
-                            <div className="overflow-hidden">
-                              <span className="text-xs font-medium text-[#111111] block truncate">
+                            <div className="overflow-hidden min-w-0">
+                              <span className="text-xs font-medium text-[#111111] block truncate leading-tight">
                                 {comprobanteFileName || 'comprobante_pago.jpg'}
                               </span>
-                              <span className="text-[10px] text-emerald-600 font-mono flex items-center gap-1 font-medium">
-                                <CheckCircle2 size={10} /> Comprobante listo
+                              <span className="text-[10px] text-emerald-600 font-mono flex items-center gap-1 font-medium leading-none mt-0.5">
+                                <CheckCircle2 size={9} /> Listo
                               </span>
                             </div>
                           </div>
@@ -3782,13 +3929,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                               setComprobanteUrl(null);
                               setComprobanteFileName(null);
                             }}
-                            className="text-rose-600 hover:text-rose-700 text-[10px] font-medium py-1 px-2.5 rounded-lg bg-rose-50 border border-rose-200 shrink-0 cursor-pointer"
+                            className="text-rose-600 hover:text-rose-700 text-[10px] font-medium py-0.5 px-2 rounded-md bg-rose-50 border border-rose-200 shrink-0 cursor-pointer"
                           >
                             Cambiar
                           </button>
                         </div>
                       ) : (
-                        <label className="border-2 border-dashed border-gray-300 hover:border-black bg-white hover:bg-gray-50 transition-all rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer text-center group shadow-xs">
+                        <label className="border border-dashed border-gray-300 hover:border-black bg-white hover:bg-gray-50 transition-all rounded-xl py-1.5 px-3 flex items-center justify-between cursor-pointer group shadow-2xs">
                           <input
                             type="file"
                             accept="image/*"
@@ -3797,23 +3944,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                             disabled={isUploadingReceipt}
                           />
                           {isUploadingReceipt ? (
-                            <div className="flex items-center gap-2 text-xs text-gray-700 font-medium py-1.5">
-                              <RotateCcw size={14} className="animate-spin text-black" />
+                            <div className="flex items-center gap-2 text-xs text-gray-700 font-medium py-0.5 mx-auto">
+                              <RotateCcw size={13} className="animate-spin text-black" />
                               <span>Optimizando comprobante...</span>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-2.5 py-1">
-                              <div className="w-8 h-8 rounded-lg bg-gray-100 text-[#111111] flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
-                                <Upload size={15} />
-                              </div>
-                              <div className="text-left">
-                                <span className="text-xs font-medium text-[#111111] group-hover:text-black block">
+                            <div className="flex items-center justify-between w-full gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="w-6 h-6 rounded-md bg-gray-100 text-[#111111] flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                                  <Upload size={12} />
+                                </div>
+                                <span className="text-xs font-medium text-[#111111] truncate">
                                   Toca para subir captura o foto
                                 </span>
-                                <span className="text-[10px] text-gray-500 block font-normal">
-                                  PNG, JPG o captura de pantalla
-                                </span>
                               </div>
+                              <span className="text-[10px] text-gray-400 font-normal shrink-0">
+                                PNG / JPG
+                              </span>
                             </div>
                           )}
                         </label>
@@ -3822,10 +3969,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   )}
 
                   {/* SECCIÓN 4: RESUMEN AL FINAL */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-2xl overflow-hidden transition-all shadow-xs">
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl sm:rounded-2xl overflow-hidden transition-all shadow-xs">
                     <div
                       onClick={() => setIsOrderSummaryExpanded(!isOrderSummaryExpanded)}
-                      className="p-2 px-3 flex items-center justify-between text-[11px] gap-2 cursor-pointer hover:bg-gray-100 transition-colors select-none"
+                      className="p-1.5 px-2.5 sm:p-2 sm:px-3 flex items-center justify-between text-[11px] gap-2 cursor-pointer hover:bg-gray-100 transition-colors select-none"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="flex items-center -space-x-1 shrink-0">
@@ -3952,16 +4099,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   </div>
 
                   {/* BOTÓN FINAL DE CONFIRMAR COMPRA */}
-                  <div className="pt-1 space-y-2">
+                  <div className="pt-0.5 space-y-1">
                     <button
                       type="submit"
                       disabled={isSubmittingOrder || isUploadingReceipt}
-                      className="w-full py-3.5 bg-[#000000] hover:bg-neutral-800 disabled:opacity-50 text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
+                      className="w-full py-2.5 sm:py-3.5 bg-[#000000] hover:bg-neutral-800 disabled:opacity-50 text-white font-medium text-xs sm:text-sm rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
                     >
                       {isSubmittingOrder ? (
-                        <RotateCcw size={16} className="animate-spin text-white" />
+                        <RotateCcw size={15} className="animate-spin text-white" />
                       ) : (
-                        <CheckCircle2 size={16} className="text-white" />
+                        <CheckCircle2 size={15} className="text-white" />
                       )}
                       <span>
                         {isSubmittingOrder
@@ -3972,18 +4119,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                     {/* Vía de escape y aclaratorias debajo del botón */}
                     {tipoConfirmacion === 'comprobante' ? (
-                      <div className="space-y-1 text-center pt-0.5">
-                        <p className="text-[10.5px] sm:text-[11px] text-[#555555] font-normal leading-relaxed px-1">
-                          Al confirmar tu orden, se abrirá WhatsApp con el resumen de tu compra para confirmar cada detalle y responder cualquier consulta si lo deseas
+                      <div className="space-y-0.5 text-center pt-0.5">
+                        <p className="text-xs text-gray-500 font-normal leading-tight px-1">
+                          Al confirmar tu orden, se abrirá WhatsApp con el resumen de tu compra para confirmar cada detalle y responder cualquier consulta si lo deseas.
                         </p>
 
-                        <div className="pt-0.5 pb-0.5">
+                        <div className="pt-0.5">
                           <button
                             type="button"
                             onClick={() => setTipoConfirmacion('whatsapp')}
-                            className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-[#555555] hover:text-[#111111] transition-colors cursor-pointer group py-1 px-2.5 rounded-lg hover:bg-gray-100"
+                            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#111111] transition-colors cursor-pointer group py-0.5 px-2 rounded-md hover:bg-gray-100"
                           >
-                            <img src="/whatsapp.png" alt="WhatsApp" className="w-4 h-4 object-contain group-hover:scale-110 transition-transform shrink-0" />
+                            <img src="/whatsapp.png" alt="WhatsApp" className="w-3.5 h-3.5 object-contain group-hover:scale-110 transition-transform shrink-0" />
                             <span>
                               ¿Tienes problemas para pagar?{' '}
                               <span className="underline font-medium text-[#128C7E] group-hover:text-[#075E54]">
@@ -3994,18 +4141,18 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <div className="space-y-1 text-center pt-0.5">
-                        <p className="text-[10.5px] sm:text-[11px] text-[#555555] font-normal leading-relaxed px-1">
+                      <div className="space-y-0.5 text-center pt-0.5">
+                        <p className="text-xs text-gray-500 font-normal leading-tight px-1">
                           Presiona confirmar para realizar el pago y concretar tu pedido con un asesor.
                         </p>
 
-                        <div className="pt-0.5 pb-0.5">
+                        <div className="pt-0.5">
                           <button
                             type="button"
                             onClick={() => setTipoConfirmacion('comprobante')}
-                            className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-[#555555] hover:text-emerald-700 transition-colors cursor-pointer group py-1 px-2.5 rounded-lg hover:bg-gray-100"
+                            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-emerald-700 transition-colors cursor-pointer group py-0.5 px-2 rounded-md hover:bg-gray-100"
                           >
-                            <CheckCircle2 size={13} className="text-emerald-600" />
+                            <CheckCircle2 size={12} className="text-emerald-600" />
                             <span>
                               Prefiero realizar el pago directo y{' '}
                               <span className="underline font-medium text-emerald-700">
@@ -4198,20 +4345,45 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               onClick={(e) => e.stopPropagation()}
               className="relative bg-white w-full h-[100dvh] md:h-auto md:max-h-[calc(100dvh-2.5rem)] md:max-w-3xl rounded-none md:rounded-3xl md:border md:border-gray-200 flex flex-col md:flex-row overflow-hidden shadow-2xl animate-scale-up text-[#111111] cursor-default"
             >
-              {/* Botón X de Cierre Exclusivo para Desktop */}
-              <button
-                type="button"
-                onClick={() => {
-                  setQuickViewProduct(null);
-                  setQuickViewActiveVariant(null);
-                  setQuickViewImageIndex(0);
-                }}
-                className="hidden md:flex absolute top-4 right-4 z-30 w-9 h-9 rounded-xl bg-gray-100 hover:bg-red-500 hover:text-white text-gray-700 items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0"
-                title="Cerrar ventana"
-                aria-label="Cerrar ventana"
-              >
-                <X size={18} strokeWidth={2.5} />
-              </button>
+              {/* Botones de Cabecera Exclusivos para Desktop (Carrito y Cerrar) */}
+              <div className="hidden md:flex absolute top-4 right-4 z-30 items-center gap-2">
+                <button
+                  id="modal-cart-button-desktop"
+                  type="button"
+                  onClick={() => {
+                    setQuickViewProduct(null);
+                    setQuickViewActiveVariant(null);
+                    setQuickViewImageIndex(0);
+                    setAddedHeaderDropdown(null);
+                    setIsCartOpen(true);
+                  }}
+                  className={`relative w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0 ${
+                    isCartBouncing ? 'scale-125 text-emerald-500' : ''
+                  }`}
+                  title={`Ver carrito de compras (${cartTotals.totalUnits} ${cartTotals.totalUnits === 1 ? 'artículo' : 'artículos'})`}
+                  aria-label={`Ver carrito de compras con ${cartTotals.totalUnits} artículos`}
+                >
+                  <ShoppingCart size={17} className={`stroke-[2.2] transition-colors ${isCartBouncing ? 'text-emerald-500' : 'text-gray-700'}`} />
+                  {cartTotals.totalUnits > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center border border-white">
+                      {cartTotals.totalUnits}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickViewProduct(null);
+                    setQuickViewActiveVariant(null);
+                    setQuickViewImageIndex(0);
+                  }}
+                  className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-red-500 hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shadow-xs shrink-0"
+                  title="Cerrar ventana"
+                  aria-label="Cerrar ventana"
+                >
+                  <X size={18} strokeWidth={2.5} />
+                </button>
+              </div>
 
               {/* BARRA SUPERIOR FIJA EXCLUSIVA MÓVIL (HEADER DEL PRODUCTO TIPO SHEIN) */}
               <header className="md:hidden sticky top-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-b border-gray-100 px-3 py-1.5 flex items-center justify-between shrink-0 h-10">
@@ -4237,7 +4409,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <button
                   id="modal-cart-button"
                   type="button"
-                  onClick={() => setIsCartOpen(true)}
+                  onClick={() => {
+                    setQuickViewProduct(null);
+                    setQuickViewActiveVariant(null);
+                    setQuickViewImageIndex(0);
+                    setAddedHeaderDropdown(null);
+                    setIsCartOpen(true);
+                  }}
                   className={`relative p-1 text-gray-800 hover:text-black rounded-full transition-all cursor-pointer flex items-center justify-center active:scale-90 shrink-0 ${
                     isCartBouncing ? 'scale-125 text-emerald-500 rotate-6' : ''
                   }`}
@@ -4634,6 +4812,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               type="button"
               onClick={() => {
                 setAddedHeaderDropdown(null);
+                setQuickViewProduct(null);
+                setQuickViewActiveVariant(null);
+                setQuickViewImageIndex(0);
                 setIsCartOpen(true);
               }}
               className="flex-1 py-1.5 px-2 bg-white hover:bg-gray-100 text-[#111111] text-xs font-medium rounded-lg transition-colors text-center cursor-pointer shadow-xs"
