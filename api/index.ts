@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { getProductBySlug, getCategoryBySlug, formatDirectImageUrl, DEFAULT_OG_IMAGE } from '../src/services/productsService';
+import { getProductBySlug, getCategoryBySlug, formatDirectImageUrl, DEFAULT_OG_IMAGE } from '../src/services/productsService.js';
 
 function escapeHtml(str: string): string {
   if (!str) return '';
