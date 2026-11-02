@@ -200,7 +200,7 @@ export function formatDirectImageUrl(rawUrl) {
   return url;
 }
 
-export const DEFAULT_OG_IMAGE = 'https://loquelosbikersquieren.vercel.app/logo-og.png';
+export const DEFAULT_OG_IMAGE = 'https://www.loquelosbikersquieren.com/LOGO.png';
 
 // ============================================================================
 // CONFIGURACIÓN DE FIREBASE Y FIRESTORE (A PRUEBA DE VERCEL SSR)

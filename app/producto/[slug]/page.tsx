@@ -33,7 +33,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       };
     }
 
-    const pageUrl = `https://loquelosbikersquieren.vercel.app/producto/${slug}`;
+    const pageUrl = `https://www.loquelosbikersquieren.com/producto/${slug}`;
     const priceText = producto.precioVentaUSD > 0 ? ` - $${producto.precioVentaUSD.toFixed(2)} USD` : '';
     const title = `${producto.nombre}${priceText} | Lo que los bikers quieren`;
     const description = producto.descripcion || 'Accesorios, repuestos y equipamiento exclusivo para moteros en Venezuela.';

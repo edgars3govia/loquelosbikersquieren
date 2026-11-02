@@ -15,7 +15,7 @@ function escapeHtml(str: string): string {
 export default async function handler(req: any, res: any) {
   try {
     const url = req.url || '/';
-    const host = req.headers['x-forwarded-host'] || req.headers?.host || 'loquelosbikersquieren.vercel.app';
+    const host = req.headers['x-forwarded-host'] || req.headers?.host || 'www.loquelosbikersquieren.com';
     const proto = req.headers['x-forwarded-proto'] || 'https';
     const siteUrl = `${proto}://${host}`;
 

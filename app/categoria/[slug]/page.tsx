@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       };
     }
 
-    const pageUrl = `https://loquelosbikersquieren.vercel.app/categoria/${slug}`;
+    const pageUrl = `https://www.loquelosbikersquieren.com/categoria/${slug}`;
     const title = `Categoría: ${categoria} | Lo que los bikers quieren`;
     const description = `Explora los mejores accesorios y repuestos de ${categoria} para motos en Venezuela. Envíos nacionales e inventario actualizado.`;
 

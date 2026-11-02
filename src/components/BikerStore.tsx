@@ -2646,7 +2646,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
   // Copy store link
   const handleCopyStoreLink = () => {
-    const url = 'https://loquelosbikersquieren.vercel.app/';
+    const url = 'https://www.loquelosbikersquieren.com/';
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2200);

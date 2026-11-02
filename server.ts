@@ -285,7 +285,7 @@ async function resolveCategory(slugParam: string): Promise<string | null> {
 // ============================================================================
 
 async function injectMetadata(htmlTemplate: string, req: Request): Promise<string> {
-  const host = req.get('x-forwarded-host') || req.get('host') || 'loquelosbikersquieren.com';
+  const host = req.get('x-forwarded-host') || req.get('host') || 'www.loquelosbikersquieren.com';
   // WhatsApp y redes sociales requieren estrictamente URLs absolutas con https://
   const baseUrl = `https://${host}`;
   const pathParts = req.path.split('/').filter(Boolean);
@@ -462,7 +462,7 @@ async function startServer() {
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
     }
-    const host = req.get('x-forwarded-host') || req.get('host') || 'loquelosbikersquieren.com';
+    const host = req.get('x-forwarded-host') || req.get('host') || 'www.loquelosbikersquieren.com';
     const prodName = formatTitleCase(product.grupo_nombre || product.nombre);
     const priceUSD = Number(product.precio_venta_ref || product.precio_mayor || 0);
     const rawImage = product.grupo_imagen_portada || product.imagen_portada || product.variante_imagen_hd || product.imagen_url || product.link;

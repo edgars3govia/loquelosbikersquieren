@@ -4,7 +4,7 @@ import '../src/index.css';
 import { TikTokInAppNotice } from '../src/components/TikTokInAppNotice';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://loquelosbikersquieren.vercel.app'),
+  metadataBase: new URL('https://www.loquelosbikersquieren.com'),
   title: 'Lo que los bikers quieren | Tienda de Accesorios y Repuestos',
   description: 'Catálogo oficial de repuestos, cascos, chaquetas y accesorios para motos en Venezuela.',
   icons: {
@@ -14,6 +14,7 @@ export const metadata: Metadata = {
     siteName: 'Lo que los bikers quieren',
     locale: 'es_VE',
     type: 'website',
+    url: 'https://www.loquelosbikersquieren.com',
   },
 };
 

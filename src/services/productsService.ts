@@ -128,7 +128,7 @@ export function formatDirectImageUrl(rawUrl?: string | null): string {
 }
 
 // Imagen por defecto en caso de no poseer imagen específica
-export const DEFAULT_OG_IMAGE = 'https://loquelosbikersquieren.vercel.app/logo-og.png';
+export const DEFAULT_OG_IMAGE = 'https://www.loquelosbikersquieren.com/LOGO.png';
 
 // Caché en memoria para respuestas ultra rápidas (< 10ms) en rastreadores de WhatsApp/Facebook
 let cachedProducts: any[] | null = null;

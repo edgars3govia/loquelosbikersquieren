@@ -202,7 +202,7 @@ export default function ProductoVistaCliente({ slug, initialProduct }: ProductoV
   const handleDirectWhatsApp = () => {
     if (!product) return;
     const phone = '584128276786';
-    const currentUrl = typeof window !== 'undefined' ? window.location.href : `https://loquelosbikersquieren.vercel.app/producto/${slug}`;
+    const currentUrl = typeof window !== 'undefined' ? window.location.href : `https://www.loquelosbikersquieren.com/producto/${slug}`;
     const totalUSD = (product.precioVentaUSD * quantity).toFixed(2);
     const totalBS = formatVES(product.precioVentaUSD * quantity * tasaBCV);
 
@@ -220,7 +220,7 @@ export default function ProductoVistaCliente({ slug, initialProduct }: ProductoV
 
   // Copiar enlace canónico para compartir en redes / WhatsApp
   const handleCopyLink = async () => {
-    const currentUrl = typeof window !== 'undefined' ? window.location.href : `https://loquelosbikersquieren.vercel.app/producto/${slug}`;
+    const currentUrl = typeof window !== 'undefined' ? window.location.href : `https://www.loquelosbikersquieren.com/producto/${slug}`;
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(currentUrl);
