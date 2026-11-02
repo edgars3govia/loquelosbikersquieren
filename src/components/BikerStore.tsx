@@ -613,6 +613,8 @@ interface BikerStoreProps {
   financialSettings?: GlobalFinancialSettings;
   onExitToAdmin?: () => void;
   isAdmin?: boolean;
+  initialProductSlug?: string;
+  initialCategorySlug?: string;
 }
 
 export const BikerStore: React.FC<BikerStoreProps> = ({
@@ -626,7 +628,9 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     factorComisionBarco: 1.07
   },
   onExitToAdmin,
-  isAdmin = false
+  isAdmin = false,
+  initialProductSlug,
+  initialCategorySlug
 }) => {
   // Support activating admin controls via props, URL param (?admin=true), or localStorage
   const [isAdminMode] = useState<boolean>(() => {
@@ -2226,6 +2230,28 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       console.warn("Initial URL deep linking error:", err);
     }
   }, [sourceProducts, categories, catalogItems]);
+
+  // Sincronización reactiva directa cuando initialProductSlug es provisto por la ruta dinámica
+  useEffect(() => {
+    if (!initialProductSlug || sourceProducts.length === 0) return;
+    const found = findProductBySlugOrId(sourceProducts, initialProductSlug);
+    if (found) {
+      hasCheckedInitialUrlRef.current = true;
+      setQuickViewUserSelectedVariant(true);
+      openQuickView(found, true, false);
+    }
+  }, [initialProductSlug, sourceProducts]);
+
+  // Sincronización reactiva directa cuando initialCategorySlug es provisto por la ruta dinámica
+  useEffect(() => {
+    if (!initialCategorySlug || categories.length === 0) return;
+    const foundCat = findCategoryBySlug(categories, initialCategorySlug);
+    if (foundCat) {
+      hasCheckedInitialUrlRef.current = true;
+      setSelectedCategory(foundCat);
+      setSelectedSubcategory(null);
+    }
+  }, [initialCategorySlug, categories]);
 
   // Apertura desde la tarjeta del catálogo: si el usuario ya seleccionó una opción, abrir con esa opción; si no, abre con la portada asignada
   const handleOpenCardQuickView = (item: (typeof catalogItems)[0]) => {

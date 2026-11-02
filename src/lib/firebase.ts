@@ -71,20 +71,22 @@ export const getGoogleAccessToken = (): string | null => {
   return null;
 };
 
-// Force LocalStorage persistence to handle browser restrictions on third-party cookies (iOS/ITP)
-setPersistence(auth, browserLocalPersistence).catch(console.error);
+// Force LocalStorage persistence only on the browser to avoid SSR/Node.js invocation crashes
+if (typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence).catch(console.error);
 
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
+  async function testConnection() {
+    try {
+      await getDocFromServer(doc(db, 'test', 'connection'));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('the client is offline')) {
+        console.error("Please check your Firebase configuration.");
+      }
     }
   }
-}
 
-testConnection();
+  testConnection();
+}
 
 export interface FirestoreErrorInfo {
   error: string;

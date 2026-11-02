@@ -4,17 +4,31 @@ import firebaseConfig from '../firebase-applet-config.json';
 import { slugify, getProductSlug, findProductBySlugOrId, findCategoryBySlug } from '../utils/slugHelper';
 import { removeAccents, formatTitleCase } from '../utils/textUtils';
 
-// Inicialización segura tanto para entornos Serverless / Next.js como Express / Client
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId || 'ai-studio-c0bff50d-0bf4-4cb2-83dc-2712ee3eb530';
+// Configuración segura con soporte para variables de entorno de Vercel y fallback al archivo de configuración
+const resolvedFirebaseConfig = {
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID || firebaseConfig.appId,
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  firestoreDatabaseId: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID || process.env.FIREBASE_DATABASE_ID || (firebaseConfig as any).firestoreDatabaseId || 'ai-studio-c0bff50d-0bf4-4cb2-83dc-2712ee3eb530',
+};
 
 let dbInstance: any = null;
 function getDb() {
   if (!dbInstance) {
     try {
-      dbInstance = initializeFirestore(app, {}, firestoreDbId);
-    } catch {
-      dbInstance = getFirestore(app, firestoreDbId);
+      const app = getApps().length === 0 ? initializeApp(resolvedFirebaseConfig) : getApp();
+      const firestoreDbId = resolvedFirebaseConfig.firestoreDatabaseId;
+      try {
+        dbInstance = initializeFirestore(app, {}, firestoreDbId);
+      } catch {
+        dbInstance = getFirestore(app, firestoreDbId);
+      }
+    } catch (err) {
+      console.warn('Firebase initialization in productsService warning:', err);
+      return null;
     }
   }
   return dbInstance;
@@ -129,6 +143,7 @@ export async function getAllProducts(): Promise<any[]> {
 
   try {
     const db = getDb();
+    if (!db) return cachedProducts || [];
     const snap = await getDocs(collection(db, 'productos'));
     const list = snap.docs.map(docSnap => {
       const data = docSnap.data();
@@ -141,7 +156,7 @@ export async function getAllProducts(): Promise<any[]> {
     lastCacheTime = now;
     return list;
   } catch (error) {
-    console.error('Error fetching products from Firestore:', error);
+    console.warn('Firestore fetch products note/fallback:', error);
     return cachedProducts || [];
   }
 }
@@ -153,105 +168,118 @@ export async function getAllProducts(): Promise<any[]> {
 export async function getProductBySlug(param: string): Promise<ProductDetails | null> {
   if (!param) return null;
 
-  const products = await getAllProducts();
-  const raw = findProductBySlugOrId(products, param);
+  try {
+    const products = await getAllProducts();
+    const raw = findProductBySlugOrId(products, param);
 
-  let targetProduct = raw;
-  if (!targetProduct) {
-    // Si no se encontró en la lista cacheadas, buscar directamente por ID de documento
-    try {
-      const db = getDb();
-      const directDoc = await getDoc(doc(db, 'productos', param));
-      if (directDoc.exists()) {
-        targetProduct = { id: directDoc.id, ...directDoc.data() } as any;
+    let targetProduct = raw;
+    if (!targetProduct) {
+      // Si no se encontró en la lista cacheadas, buscar directamente por ID de documento
+      try {
+        const db = getDb();
+        if (db) {
+          const directDoc = await getDoc(doc(db, 'productos', param));
+          if (directDoc.exists()) {
+            targetProduct = { id: directDoc.id, ...directDoc.data() } as any;
+          }
+        }
+      } catch (e) {
+        console.warn('Direct Firestore doc lookup warning:', e);
       }
-    } catch (e) {
-      console.warn('Direct Firestore doc lookup failed:', e);
     }
+
+    if (!targetProduct) return null;
+
+    // Extraer la mejor imagen disponible del producto
+    const rawImage = targetProduct.variante_imagen_hd ||
+                     targetProduct.imagen_portada ||
+                     targetProduct.imagen_url ||
+                     targetProduct.link ||
+                     (Array.isArray(targetProduct.imagenes) && targetProduct.imagenes[0]) ||
+                     targetProduct.grupo_kit_imagen ||
+                     '';
+
+    const formattedImage = formatDirectImageUrl(rawImage) || DEFAULT_OG_IMAGE;
+
+    // Recopilar galería de imágenes
+    const gallery: string[] = [];
+    if (formattedImage) gallery.push(formattedImage);
+    if (Array.isArray(targetProduct.imagenes)) {
+      targetProduct.imagenes.forEach((img: string) => {
+        const f = formatDirectImageUrl(img);
+        if (f && !gallery.includes(f)) gallery.push(f);
+      });
+    }
+    if (Array.isArray(targetProduct.imagenes_secundarias)) {
+      targetProduct.imagenes_secundarias.forEach((img: string) => {
+        const f = formatDirectImageUrl(img);
+        if (f && !gallery.includes(f)) gallery.push(f);
+      });
+    }
+
+    const pVenta = Number(targetProduct.precio_venta_ref) || 0;
+    const pMayor = Number(targetProduct.precio_mayor) || 0;
+    const pGranMayor = Number(targetProduct.precio_gran_mayor) || 0;
+    const stock = Number(targetProduct.stock_disponible) || 0;
+    const nombre = formatTitleCase(targetProduct.grupo_nombre || targetProduct.nombre || 'Accesorio Biker');
+
+    // Construir descripción enriquecida para WhatsApp y SEO
+    let descripcion = '';
+    if (pVenta > 0) {
+      descripcion += `Precio: $${pVenta.toFixed(2)} USD. `;
+    }
+    if (targetProduct.palabras_clave) {
+      descripcion += `${targetProduct.palabras_clave}. `;
+    } else if (targetProduct.notas) {
+      descripcion += `${targetProduct.notas}. `;
+    }
+    if (stock > 0) {
+      descripcion += `Disponibilidad inmediata: ${stock} unidades. `;
+    }
+    descripcion += 'Envíos a toda Venezuela. Lo Que Los Bikers Quieren - Accesorios y Repuestos.';
+
+    return {
+      id: targetProduct.id,
+      sku: targetProduct.sku,
+      nombre,
+      descripcion: descripcion.trim(),
+      imagenUrl: formattedImage,
+      imagenes: gallery,
+      precioVentaUSD: pVenta,
+      precioMayorUSD: pMayor,
+      precioGranMayorUSD: pGranMayor,
+      stock,
+      categoria: formatTitleCase(targetProduct.categoria || 'Accesorios'),
+      subcategoria: targetProduct.subcategoria,
+      slug: getProductSlug(targetProduct),
+      grupo_nombre: targetProduct.grupo_nombre,
+      variante_nombre: targetProduct.variante_nombre,
+      es_kit: !!targetProduct.es_kit,
+      raw: targetProduct,
+    };
+  } catch (err) {
+    console.error('Unhandled error in getProductBySlug:', err);
+    return null;
   }
-
-  if (!targetProduct) return null;
-
-  // Extraer la mejor imagen disponible del producto
-  const rawImage = targetProduct.variante_imagen_hd ||
-                   targetProduct.imagen_portada ||
-                   targetProduct.imagen_url ||
-                   targetProduct.link ||
-                   (Array.isArray(targetProduct.imagenes) && targetProduct.imagenes[0]) ||
-                   targetProduct.grupo_kit_imagen ||
-                   '';
-
-  const formattedImage = formatDirectImageUrl(rawImage) || DEFAULT_OG_IMAGE;
-
-  // Recopilar galería de imágenes
-  const gallery: string[] = [];
-  if (formattedImage) gallery.push(formattedImage);
-  if (Array.isArray(targetProduct.imagenes)) {
-    targetProduct.imagenes.forEach((img: string) => {
-      const f = formatDirectImageUrl(img);
-      if (f && !gallery.includes(f)) gallery.push(f);
-    });
-  }
-  if (Array.isArray(targetProduct.imagenes_secundarias)) {
-    targetProduct.imagenes_secundarias.forEach((img: string) => {
-      const f = formatDirectImageUrl(img);
-      if (f && !gallery.includes(f)) gallery.push(f);
-    });
-  }
-
-  const pVenta = Number(targetProduct.precio_venta_ref) || 0;
-  const pMayor = Number(targetProduct.precio_mayor) || 0;
-  const pGranMayor = Number(targetProduct.precio_gran_mayor) || 0;
-  const stock = Number(targetProduct.stock_disponible) || 0;
-  const nombre = formatTitleCase(targetProduct.grupo_nombre || targetProduct.nombre || 'Accesorio Biker');
-
-  // Construir descripción enriquecida para WhatsApp y SEO
-  let descripcion = '';
-  if (pVenta > 0) {
-    descripcion += `Precio: $${pVenta.toFixed(2)} USD. `;
-  }
-  if (targetProduct.palabras_clave) {
-    descripcion += `${targetProduct.palabras_clave}. `;
-  } else if (targetProduct.notas) {
-    descripcion += `${targetProduct.notas}. `;
-  }
-  if (stock > 0) {
-    descripcion += `Disponibilidad inmediata: ${stock} unidades. `;
-  }
-  descripcion += 'Envíos a toda Venezuela. Lo Que Los Bikers Quieren - Accesorios y Repuestos.';
-
-  return {
-    id: targetProduct.id,
-    sku: targetProduct.sku,
-    nombre,
-    descripcion: descripcion.trim(),
-    imagenUrl: formattedImage,
-    imagenes: gallery,
-    precioVentaUSD: pVenta,
-    precioMayorUSD: pMayor,
-    precioGranMayorUSD: pGranMayor,
-    stock,
-    categoria: formatTitleCase(targetProduct.categoria || 'Accesorios'),
-    subcategoria: targetProduct.subcategoria,
-    slug: getProductSlug(targetProduct),
-    grupo_nombre: targetProduct.grupo_nombre,
-    variante_nombre: targetProduct.variante_nombre,
-    es_kit: !!targetProduct.es_kit,
-    raw: targetProduct,
-  };
 }
 
 /**
  * Consulta una categoría por slug.
  */
 export async function getCategoryBySlug(slugParam: string): Promise<string | null> {
-  const products = await getAllProducts();
-  const catSet = new Set<string>();
-  products.forEach(p => {
-    if (p.categoria) catSet.add(p.categoria);
-    if (Array.isArray(p.categorias)) {
-      p.categorias.forEach((c: any) => c && catSet.add(c));
-    }
-  });
-  return findCategoryBySlug(Array.from(catSet), slugParam) || null;
+  if (!slugParam) return null;
+  try {
+    const products = await getAllProducts();
+    const catSet = new Set<string>();
+    products.forEach(p => {
+      if (p.categoria) catSet.add(p.categoria);
+      if (Array.isArray(p.categorias)) {
+        p.categorias.forEach((c: any) => c && catSet.add(c));
+      }
+    });
+    return findCategoryBySlug(Array.from(catSet), slugParam) || null;
+  } catch (err) {
+    console.error('Unhandled error in getCategoryBySlug:', err);
+    return null;
+  }
 }
