@@ -1,5 +1,6 @@
 import React from 'react';
 import { BikerStore } from './components/BikerStore';
+import { TikTokInAppNotice } from './components/TikTokInAppNotice';
 
 interface AppProps {
   initialProductSlug?: string;
@@ -15,6 +16,7 @@ export default function App({ initialProductSlug, initialCategorySlug }: AppProp
         initialProductSlug={initialProductSlug}
         initialCategorySlug={initialCategorySlug}
       />
+      <TikTokInAppNotice />
     </div>
   );
 }

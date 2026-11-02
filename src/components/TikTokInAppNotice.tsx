@@ -3,35 +3,54 @@
 import React, { useState, useEffect } from 'react';
 import { Globe } from 'lucide-react';
 
+let activeNoticeMounted = false;
+
 export function TikTokInAppNotice() {
-  const [isTikTokBrowser, setIsTikTokBrowser] = useState(false);
+  const [isTikTok, setIsTikTok] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
 
-    // Detect if running inside TikTok in-app browser
-    const ua = navigator.userAgent || '';
-    const isTikTok = /musical_ly|bytedance|tiktok/i.test(ua);
-
-    if (isTikTok) {
-      setIsTikTokBrowser(true);
+    if (activeNoticeMounted) {
+      return;
     }
+    activeNoticeMounted = true;
+
+    // Diagnóstico en consola para auditar UserAgent y Referrer en dispositivos reales
+    console.log("TikTokInAppNotice montado. UserAgent:", navigator.userAgent, "Referrer:", document.referrer);
+
+    const ua = (navigator.userAgent || '').toLowerCase();
+    const ref = (document.referrer || '').toLowerCase();
+    const isTikTokUA = /musical_ly|bytedance|tiktok|trill|bytefull/.test(ua);
+    const isTikTokRef = ref.includes('tiktok') || ref.includes('tiktoklinksafety');
+    const isAndroidWebView = ua.includes('wv') || (ua.includes('android') && ua.includes('version/'));
+    const isIOSWebView = /(iphone|ipod|ipad)/.test(ua) && !ua.includes('safari');
+    const isTestMode = window.location.search.includes('tiktok_test=1');
+
+    if (isTikTokUA || isTikTokRef || isAndroidWebView || isIOSWebView || isTestMode) {
+      setIsTikTok(true);
+    }
+
+    return () => {
+      activeNoticeMounted = false;
+    };
   }, []);
 
-  if (!isTikTokBrowser || isDismissed) {
+  if (!isTikTok || isDismissed) {
     return null;
   }
 
   return (
     <div
+      id="tiktok-inapp-notice-root"
       role="dialog"
       aria-modal="true"
       aria-label="Aviso para navegador de TikTok"
-      className="fixed inset-0 z-[999999] bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center p-4 select-none animate-in fade-in duration-200"
+      className="fixed inset-0 z-[999999] pointer-events-auto bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center p-4 select-none animate-in fade-in duration-200"
     >
       {/* Flecha indicadora superior derecha apuntando hacia los tres puntos (•••) */}
-      <div className="fixed top-2 right-4 sm:top-4 sm:right-6 pointer-events-none flex flex-col items-end z-10 animate-bounce">
+      <div className="fixed top-2 right-4 sm:top-4 sm:right-6 pointer-events-none flex flex-col items-end z-[1000000] animate-bounce">
         <svg
           width="64"
           height="64"
@@ -108,3 +127,4 @@ export function TikTokInAppNotice() {
     </div>
   );
 }
+export default TikTokInAppNotice;
