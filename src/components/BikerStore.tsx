@@ -69,6 +69,7 @@ import {
   calculateProductSearchScore,
   formatVES
 } from '../utils/textUtils';
+import { slugify, getProductSlug, findProductBySlugOrId, findCategoryBySlug } from '../utils/slugHelper';
 import { StoreCategoriesModal } from './StoreCategoriesModal';
 import { StoreTextEditorModal, DEFAULT_STORE_TEXTS } from './StoreTextEditorModal';
 import { EditableStoreText } from './EditableStoreText';
@@ -1983,7 +1984,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     setIsCheckoutOpen(true);
   };
 
-  // Cerrar QuickView y limpiar parámetro de URL ?p=
+  // Cerrar QuickView y sincronizar URL canónica (/ o /categoria/[slug])
   const closeQuickView = () => {
     setIsLightboxOpen(false);
     setQuickViewProduct(null);
@@ -1994,14 +1995,16 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       const url = new URL(window.location.href);
       if (url.searchParams.has('p')) {
         url.searchParams.delete('p');
-        window.history.pushState({}, '', url.pathname + (url.search ? url.search : '') + url.hash);
       }
+      const targetPath = selectedCategory !== 'all' ? `/categoria/${slugify(selectedCategory)}` : '/';
+      const searchStr = url.search ? url.search : '';
+      window.history.pushState({}, '', targetPath + searchStr + url.hash);
     } catch (e) {
       console.warn("Could not clear product URL parameter:", e);
     }
   };
 
-  // Helper to open QuickView modal con soporte de actualización de URL (Deep Linking)
+  // Helper para abrir QuickView con soporte de URL canónica limpia (/producto/[slug])
   const openQuickView = (variant: Producto, keepSelectedKit: boolean = false, updateHistory: boolean = true) => {
     setIsLightboxOpen(false);
     let effectiveVariant = variant;
@@ -2020,10 +2023,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
     if (updateHistory) {
       try {
-        const url = new URL(window.location.href);
-        if (url.searchParams.get('p') !== effectiveVariant.id) {
-          url.searchParams.set('p', effectiveVariant.id);
-          window.history.pushState({ productId: effectiveVariant.id }, '', url.toString());
+        const slug = getProductSlug(effectiveVariant);
+        const targetPath = `/producto/${slug}`;
+        if (window.location.pathname !== targetPath) {
+          window.history.pushState({ productId: effectiveVariant.id, slug }, '', targetPath);
         }
       } catch (e) {
         console.warn("Could not update product URL parameter:", e);
@@ -2031,17 +2034,36 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     }
   };
 
-  // Compartir enlace del producto (Clipboard API y Toast de confirmación)
+  // Seleccionar categoría con actualización fluida de URL (/categoria/[slug] o /)
+  const handleSelectCategory = (catName: string, updateUrl: boolean = true) => {
+    setSelectedCategory(catName);
+    setSelectedSubcategory(null);
+    setSearchQuery('');
+    setMobileExpandedCategory(null);
+
+    if (updateUrl) {
+      try {
+        const targetPath = catName === 'all' ? '/' : `/categoria/${slugify(catName)}`;
+        if (window.location.pathname !== targetPath) {
+          window.history.pushState({ category: catName }, '', targetPath);
+        }
+      } catch (e) {
+        console.warn("Could not update category URL parameter:", e);
+      }
+    }
+  };
+
+  // Compartir enlace del producto (URL canónica limpia /producto/[slug] con Clipboard API y feedback visual)
   const handleShareProduct = async (productToShare?: Producto) => {
     const prod = productToShare || quickViewActiveVariant || quickViewProduct;
     if (!prod) return;
 
-    const url = new URL(window.location.href);
-    url.searchParams.set('p', prod.id);
-    const shareUrl = url.toString();
+    const slug = getProductSlug(prod);
+    const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://loquelosbikersquieren.com';
+    const shareUrl = `${origin}/producto/${slug}`;
 
     try {
-      window.history.replaceState({ productId: prod.id }, '', shareUrl);
+      window.history.replaceState({ productId: prod.id, slug }, '', `/producto/${slug}`);
     } catch {}
 
     let copied = false;
@@ -2086,21 +2108,64 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   useEffect(() => {
     const handlePopState = () => {
       try {
+        const path = window.location.pathname;
         const params = new URLSearchParams(window.location.search);
         const pId = params.get('p');
-        if (!pId) {
+
+        // 1. Ruta de Producto: /producto/[slug-o-id]
+        if (path.startsWith('/producto/')) {
+          const param = path.replace('/producto/', '').split('/')[0].split('?')[0];
+          if (param) {
+            const found = findProductBySlugOrId(sourceProducts, param);
+            if (found) {
+              setQuickViewUserSelectedVariant(true);
+              openQuickView(found, true, false);
+              return;
+            }
+          }
+        }
+
+        // 2. Ruta de Categoría: /categoria/[slug]
+        if (path.startsWith('/categoria/')) {
           if (quickViewProduct) {
             setQuickViewProduct(null);
             setQuickViewActiveVariant(null);
             setQuickViewUserSelectedVariant(false);
             setQuickViewImageIndex(0);
+            setIsLightboxOpen(false);
           }
-        } else {
-          const found = sourceProducts.find(p => p.id === pId || p.sku === pId || p.grupo_id === pId);
+          const catSlug = path.replace('/categoria/', '').split('/')[0].split('?')[0];
+          if (catSlug && categories.length > 0) {
+            const foundCat = findCategoryBySlug(categories, catSlug);
+            if (foundCat) {
+              setSelectedCategory(foundCat);
+              setSelectedSubcategory(null);
+              return;
+            }
+          }
+        }
+
+        // 3. Parámetro query legacy (?p=ID)
+        if (pId) {
+          const found = findProductBySlugOrId(sourceProducts, pId) || sourceProducts.find(p => p.id === pId || p.sku === pId || p.grupo_id === pId);
           if (found) {
             setQuickViewUserSelectedVariant(true);
             openQuickView(found, true, false);
+            return;
           }
+        }
+
+        // 4. Ruta raíz /
+        if (quickViewProduct) {
+          setQuickViewProduct(null);
+          setQuickViewActiveVariant(null);
+          setQuickViewUserSelectedVariant(false);
+          setQuickViewImageIndex(0);
+          setIsLightboxOpen(false);
+        }
+        if (path === '/') {
+          setSelectedCategory('all');
+          setSelectedSubcategory(null);
         }
       } catch (err) {
         console.warn("Popstate handling error:", err);
@@ -2109,26 +2174,58 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [quickViewProduct, sourceProducts, catalogItems]);
+  }, [quickViewProduct, sourceProducts, categories, catalogItems]);
 
-  // Deep linking: Carga inicial directa si la URL contiene ?p=ID_DEL_PRODUCTO
+  // Deep linking: Carga inicial directa de la página (/producto/[slug], /categoria/[slug] o ?p=ID)
   useEffect(() => {
     if (sourceProducts.length === 0 || hasCheckedInitialUrlRef.current) return;
     try {
+      const path = window.location.pathname;
       const params = new URLSearchParams(window.location.search);
       const pId = params.get('p');
+
+      // 1. Carga directa por ruta /producto/[slug] o /producto/[id]
+      if (path.startsWith('/producto/')) {
+        const param = path.replace('/producto/', '').split('/')[0].split('?')[0];
+        if (param) {
+          const found = findProductBySlugOrId(sourceProducts, param);
+          if (found) {
+            hasCheckedInitialUrlRef.current = true;
+            setQuickViewUserSelectedVariant(true);
+            openQuickView(found, true, false);
+            return;
+          }
+        }
+      }
+
+      // 2. Carga por parámetro query legacy ?p=ID
       if (pId) {
-        const found = sourceProducts.find(p => p.id === pId || p.sku === pId || p.grupo_id === pId);
+        const found = findProductBySlugOrId(sourceProducts, pId) || sourceProducts.find(p => p.id === pId || p.sku === pId || p.grupo_id === pId);
         if (found) {
           hasCheckedInitialUrlRef.current = true;
           setQuickViewUserSelectedVariant(true);
           openQuickView(found, true, false);
+          return;
+        }
+      }
+
+      // 3. Carga directa por ruta /categoria/[slug]
+      if (path.startsWith('/categoria/')) {
+        const catSlug = path.replace('/categoria/', '').split('/')[0].split('?')[0];
+        if (catSlug && categories.length > 0) {
+          const foundCat = findCategoryBySlug(categories, catSlug);
+          if (foundCat) {
+            hasCheckedInitialUrlRef.current = true;
+            setSelectedCategory(foundCat);
+            setSelectedSubcategory(null);
+            return;
+          }
         }
       }
     } catch (err) {
       console.warn("Initial URL deep linking error:", err);
     }
-  }, [sourceProducts, catalogItems]);
+  }, [sourceProducts, categories, catalogItems]);
 
   // Apertura desde la tarjeta del catálogo: si el usuario ya seleccionó una opción, abrir con esa opción; si no, abre con la portada asignada
   const handleOpenCardQuickView = (item: (typeof catalogItems)[0]) => {
@@ -2775,11 +2872,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           <div className="md:hidden bg-white px-3 py-2 overflow-x-auto flex items-center gap-5 no-scrollbar whitespace-nowrap">
             <button
               type="button"
-              onClick={() => {
-                setSelectedCategory('all');
-                setSelectedSubcategory(null);
-                setSearchQuery('');
-              }}
+              onClick={() => handleSelectCategory('all')}
               className={`text-xs transition-all cursor-pointer shrink-0 pb-1 border-b-2 ${
                 selectedCategory === 'all' && !selectedSubcategory
                   ? 'text-black font-semibold border-black'
@@ -2794,11 +2887,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <button
                   key={`mob-strip-${cat}`}
                   type="button"
-                  onClick={() => {
-                    setSelectedCategory(cat);
-                    setSelectedSubcategory(null);
-                    setSearchQuery('');
-                  }}
+                  onClick={() => handleSelectCategory(cat)}
                   className={`text-xs transition-all cursor-pointer shrink-0 pb-1 border-b-2 ${
                     isCatSelected
                       ? 'text-black font-semibold border-black'
@@ -2817,12 +2906,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <div className="max-w-[1720px] mx-auto px-4 sm:px-6 overflow-x-auto md:overflow-visible flex items-center gap-6 sm:gap-7 md:gap-8 no-scrollbar">
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedCategory('all');
-                  setSelectedSubcategory(null);
-                  setSearchQuery('');
-                  setMobileExpandedCategory(null);
-                }}
+                onClick={() => handleSelectCategory('all')}
                 className={`py-2.5 text-xs sm:text-[13px] whitespace-nowrap transition-all cursor-pointer shrink-0 border-b-2 flex items-center gap-1.5 ${
                   selectedCategory === 'all' && !selectedSubcategory
                     ? 'text-white font-medium border-white'
@@ -2861,16 +2945,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           if (mobileExpandedCategory === cat) {
                             setMobileExpandedCategory(null);
                           } else {
-                            setSelectedCategory(cat);
-                            setSelectedSubcategory(null);
+                            handleSelectCategory(cat);
                             setMobileExpandedCategory(cat);
                           }
                         } else {
-                          setSelectedCategory(cat);
-                          setSelectedSubcategory(null);
-                          setMobileExpandedCategory(null);
+                          handleSelectCategory(cat);
                         }
-                        setSearchQuery('');
                       }}
                       className={`py-2.5 text-xs sm:text-[13px] whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 border-b-2 ${
                         isCatSelected
@@ -3089,10 +3169,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 <span>{formatCategorySentenceCase(selectedCategory)}</span>
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedCategory('all');
-                    setSelectedSubcategory(null);
-                  }}
+                  onClick={() => handleSelectCategory('all')}
                   className="ml-1 text-gray-500 hover:text-black p-0.5 rounded-full hover:bg-gray-200 transition-colors cursor-pointer"
                   title="Quitar categoría"
                 >
