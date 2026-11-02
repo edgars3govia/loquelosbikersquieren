@@ -228,16 +228,8 @@ export async function getProductBySlug(param: string): Promise<ProductDetails | 
     if (pVenta > 0) {
       descripcion += `Precio: $${pVenta.toFixed(2)} USD. `;
     }
-    if (targetProduct.palabras_clave) {
-      descripcion += `${targetProduct.palabras_clave}. `;
-    } else if (targetProduct.notas) {
-      descripcion += `${targetProduct.notas}. `;
-    }
-    if (stock > 0) {
-      descripcion += `Disponibilidad inmediata: ${stock} unidades. `;
-    }
-    descripcion += 'Envíos a toda Venezuela. Lo Que Los Bikers Quieren - Accesorios y Repuestos.';
-
+    descripcion += 'Envíos a toda Venezuela. Lo Que Los Bikers Quieren - Accesorios.';
+    
     return {
       id: targetProduct.id,
       sku: targetProduct.sku,
