@@ -1177,7 +1177,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     return raw.filter(m => m.activo !== false && m.id !== 'zinli' && m.nombre?.toLowerCase() !== 'zinli');
   }, [paymentMethods]);
 
-  // Lista de métodos disponibles según el tipo de entrega (Retiro local incluye 'Pago en tienda')
+  // Lista de métodos disponibles según el tipo de entrega (Retiro local incluye 'Pago en tienda' al final)
   const availablePaymentMethods = useMemo(() => {
     if (metodoEntrega === 'retiro') {
       const storeMethod: PaymentMethodConfig = {
@@ -1188,16 +1188,17 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         activo: true,
         campos: []
       };
-      return [storeMethod, ...activePaymentMethods];
+      return [...activePaymentMethods, storeMethod];
     }
     return activePaymentMethods;
   }, [metodoEntrega, activePaymentMethods]);
 
-  // Ensure metodoPago matches an active available method
+  // Ensure metodoPago matches an active available method, defaulting to 'Pago Móvil'
   useEffect(() => {
     if (availablePaymentMethods.length > 0) {
       if (!availablePaymentMethods.some(m => m.nombre.toLowerCase() === metodoPago.toLowerCase())) {
-        setMetodoPago(availablePaymentMethods[0].nombre);
+        const preferred = availablePaymentMethods.find(m => m.nombre.toLowerCase().includes('pago móvil') || m.nombre.toLowerCase().includes('pago movil')) || availablePaymentMethods[0];
+        setMetodoPago(preferred.nombre);
       }
     }
   }, [availablePaymentMethods, metodoPago]);
@@ -2552,20 +2553,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     }
   };
 
-  // Generate clean WhatsApp Message for in-store pickup matching exact user specification
-  const generateStorePickupWhatsAppText = (order: PedidoTienda) => {
-    let text = `Hola, quiero apartar este pedido. Pasaré por la tienda a retirarlo y pagarlo personalmente.\n\n`;
-    text += `📦 *Productos:*\n`;
-    order.items.forEach((it) => {
-      text += `• ${it.cantidad}x ${it.nombre} — $${it.precio_unitario.toFixed(2)} USD\n`;
-    });
-    text += `\n💰 *Total:* $${order.totalUSD.toFixed(2)} USD (≈ Bs. ${formatVES(order.totalBS)})\n\n`;
-    text += `📍 *Retiro:* Moto Cristo (Mérida)`;
-    return text;
-  };
-
   // Generate WhatsApp Message for Order matching user's exact specification
   const generateOrderWhatsAppText = (order: PedidoTienda) => {
+    const isPickupInStore = 
+      order.metodo_entrega === 'retiro' || 
+      order.direccion_agencia_envio === 'Retiro en tienda (Mérida) - Moto Cristo' ||
+      Boolean(order.direccion_agencia_envio?.toLowerCase().includes('retiro en tienda'));
+
     let agencyLabel = 'Agencia MRW';
     let agencyAddress = order.direccion_agencia_envio || '';
     if (agencyAddress.includes(':')) {
@@ -2582,11 +2576,25 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       : `🏍️ *NUEVO PEDIDO (POR CONCRETAR): LO QUE LOS BIKERS QUIEREN*\n`;
     text += `Ref: #${order.numero_pedido}\n\n`;
     
-    text += `👤 *DATOS DE ENVÍO*\n`;
-    text += `• *Nombre:* ${order.cliente_nombre}\n`;
-    text += `• *Cédula:* ${order.cliente_cedula}\n`;
-    text += `• *Teléfono:* ${order.cliente_telefono}\n`;
-    text += `• *${agencyLabel}:* ${agencyAddress}\n\n`;
+    if (isPickupInStore) {
+      text += `📦 *DATOS DE RETIRO*\n`;
+      if (order.cliente_nombre && order.cliente_nombre !== 'Cliente' && order.cliente_nombre !== 'Cliente (Retiro en tienda)') {
+        text += `• *Nombre:* ${order.cliente_nombre}\n`;
+      }
+      if (order.cliente_cedula && order.cliente_cedula !== 'N/A') {
+        text += `• *Cédula:* ${order.cliente_cedula}\n`;
+      }
+      if (order.cliente_telefono && order.cliente_telefono !== 'N/A') {
+        text += `• *Teléfono:* ${order.cliente_telefono}\n`;
+      }
+      text += `• Punto de Retiro: Moto Cristo (Calle Kennedy, entre Campo de Oro y Santa Mónica, Mérida)\n  Ubicación: https://share.google/YdVNZ3c9PRzGRBsB4\n\n`;
+    } else {
+      text += `👤 *DATOS DE ENVÍO*\n`;
+      text += `• *Nombre:* ${order.cliente_nombre}\n`;
+      text += `• *Cédula:* ${order.cliente_cedula}\n`;
+      text += `• *Teléfono:* ${order.cliente_telefono}\n`;
+      text += `• *${agencyLabel}:* ${agencyAddress}\n\n`;
+    }
 
     text += `📦 *PRODUCTOS*\n`;
     order.items.forEach((it) => {
@@ -2616,12 +2624,14 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     return text;
   };
 
+  // Generate clean WhatsApp Message for in-store pickup
+  const generateStorePickupWhatsAppText = (order: PedidoTienda) => {
+    return generateOrderWhatsAppText(order);
+  };
+
   // Open WhatsApp with prefilled message directed to store owner (04128276786 -> 584128276786)
   const handleSendToWhatsApp = (order: PedidoTienda) => {
-    const isStorePickupCash = order.metodo_pago?.toLowerCase() === 'pago en tienda' || (order.metodo_entrega === 'retiro' && order.metodo_pago?.toLowerCase() === 'pago en tienda');
-    const text = isStorePickupCash
-      ? generateStorePickupWhatsAppText(order)
-      : generateOrderWhatsAppText(order);
+    const text = generateOrderWhatsAppText(order);
     const encoded = encodeURIComponent(text);
     const targetPhone = '584128276786';
     const url = `https://api.whatsapp.com/send?phone=${targetPhone}&text=${encoded}`;
@@ -4235,9 +4245,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         if (metodoEntrega === 'envio') {
                           setCheckoutStep(1);
                         } else {
-                          // Retiro en tienda: SALTA el Paso 1 y va directo al Paso 2
+                          // Retiro en tienda: SALTA el Paso 1 y va directo al Paso 2 con método por defecto en "Pago Móvil"
                           setCheckoutStep(2);
-                          setMetodoPago('Pago en tienda');
+                          const preferred = availablePaymentMethods.find(m => m.nombre.toLowerCase().includes('pago móvil') || m.nombre.toLowerCase().includes('pago movil'));
+                          setMetodoPago(preferred ? preferred.nombre : 'Pago Móvil');
                         }
                       }}
                       className="w-full py-3.5 bg-black hover:bg-neutral-800 text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-98 transition-all"
@@ -4937,13 +4948,35 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               )}
               <div className="border-b border-gray-200 pb-2">
                 <span className="text-[#555555] font-normal block mb-0.5">
-                  {completedOrder.metodo_entrega === 'retiro' ? 'Método de entrega:' : 'Agencia de envío:'}
+                  {completedOrder.metodo_entrega === 'retiro' || completedOrder.direccion_agencia_envio?.includes('Retiro en tienda')
+                    ? 'Método de entrega:'
+                    : 'Agencia de envío:'}
                 </span>
-                <span className="font-medium text-[#111111] text-[11px] block">
-                  {completedOrder.metodo_entrega === 'retiro'
-                    ? 'Retiro en tienda (Mérida) - Moto Cristo'
-                    : completedOrder.direccion_agencia_envio}
-                </span>
+                {completedOrder.metodo_entrega === 'retiro' || completedOrder.direccion_agencia_envio?.includes('Retiro en tienda') ? (
+                  <div className="space-y-1 mt-0.5">
+                    <span className="font-medium text-[#111111] text-[11px] block">
+                      Retiro en tienda (Mérida) - Moto Cristo
+                    </span>
+                    <p className="text-[11px] text-[#555555] font-normal leading-snug">
+                      Calle Kennedy, entre Campo de Oro y Santa Mónica.
+                    </p>
+                    <div className="pt-1">
+                      <a
+                        href="https://share.google/YdVNZ3c9PRzGRBsB4"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/90 border border-emerald-200 px-2.5 py-1 rounded-lg transition-all cursor-pointer active:scale-95 shadow-2xs"
+                      >
+                        <span>📍 Ver ubicación en Google Maps</span>
+                        <ExternalLink size={11} className="shrink-0" />
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <span className="font-medium text-[#111111] text-[11px] block">
+                    {completedOrder.direccion_agencia_envio}
+                  </span>
+                )}
               </div>
               <div className="flex justify-between border-b border-gray-200 pb-2">
                 <span className="text-[#555555] font-normal">Método de pago:</span>

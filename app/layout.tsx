@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Metadata, Viewport } from 'next';
 import '../src/index.css';
+import { TikTokInAppNotice } from '../src/components/TikTokInAppNotice';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://loquelosbikersquieren.vercel.app'),
@@ -29,6 +30,7 @@ export default function RootLayout({
     <html lang="es" className="dark">
       <body className="bg-zinc-950 text-zinc-100 min-h-screen antialiased">
         {children}
+        <TikTokInAppNotice />
       </body>
     </html>
   );
