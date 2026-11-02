@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/producto/:slug*",
+      "destination": "/api"
+    },
+    {
+      "source": "/categoria/:slug*",
+      "destination": "/api"
+    },
+    {
+      "source": "/api/og/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/((?!assets/|public/|.*\\.(?:js|css|png|jpg|jpeg|gif|svg|webp|ico|json|txt|woff|woff2)).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
