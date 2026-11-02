@@ -1,8 +1,7 @@
 import React from 'react';
 import { Metadata } from 'next';
-import { notFound } from 'next/navigation';
 import { getProductBySlug } from '../../../src/services/productsService';
-import ProductRouteClient from './ProductRouteClient';
+import ProductoVistaCliente from './ProductoVistaCliente';
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -13,6 +12,7 @@ export const dynamic = 'force-dynamic';
 /**
  * Inyección de Metadatos Server-Side para WhatsApp, Facebook y buscadores.
  * Se ejecuta exclusivamente en el servidor sin directiva "use client".
+ * Protegido con try/catch para evitar colapsos SSR.
  */
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   try {
@@ -28,9 +28,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
     if (!producto) {
       return {
-        title: 'Producto no encontrado | Lo que los bikers quieren',
-        description: 'El accesorio que buscas no está disponible o ha cambiado de enlace.',
-        robots: { index: false, follow: false },
+        title: 'Producto | Lo que los bikers quieren',
+        description: 'Accesorios y repuestos exclusivos para moteros en Venezuela.',
       };
     }
 
@@ -79,8 +78,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 /**
  * Server Component principal de la ruta física /producto/[slug].
- * Verifica la existencia del producto sin colapsar el SSR y delega la interfaz
- * al Client Component interactivo que sincroniza con el modal de la tienda.
+ * Totalmente aislado del cliente (sin hooks ni llamadas a window/document).
+ *
+ * Hibridación a prueba de fallos:
+ * Si la consulta en el servidor falla por falta de variables de entorno en Vercel,
+ * se captura el error y se pasa el slug al Client Component ProductoVistaCliente
+ * para que realice la consulta directamente desde el navegador sin arrojar error 500.
  */
 export default async function ProductPage({ params }: PageProps) {
   let slug = '';
@@ -89,24 +92,17 @@ export default async function ProductPage({ params }: PageProps) {
     slug = resolved?.slug || '';
   } catch (err) {
     console.warn('Error resolving product params:', err);
-    notFound();
-  }
-
-  if (!slug) {
-    notFound();
   }
 
   let producto = null;
-  try {
-    producto = await getProductBySlug(slug);
-  } catch (err) {
-    console.error('Error fetching product in ProductPage:', err);
+  if (slug) {
+    try {
+      producto = await getProductBySlug(slug);
+    } catch (err) {
+      console.warn('Server-side getProductBySlug fallback triggered:', err);
+      producto = null;
+    }
   }
 
-  // Si el producto no existe en la base de datos, retornar 404 amigable
-  if (!producto) {
-    notFound();
-  }
-
-  return <ProductRouteClient slug={slug} />;
+  return <ProductoVistaCliente slug={slug} initialProduct={producto} />;
 }

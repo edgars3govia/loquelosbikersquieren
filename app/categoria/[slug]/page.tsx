@@ -1,6 +1,5 @@
 import React from 'react';
 import { Metadata } from 'next';
-import { notFound } from 'next/navigation';
 import { getCategoryBySlug, DEFAULT_OG_IMAGE } from '../../../src/services/productsService';
 import CategoryRouteClient from './CategoryRouteClient';
 
@@ -16,7 +15,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     const slug = resolvedParams?.slug || '';
     if (!slug) {
       return {
-        title: 'Categoría no encontrada | Lo que los bikers quieren',
+        title: 'Categoría | Lo que los bikers quieren',
       };
     }
 
@@ -24,9 +23,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
     if (!categoria) {
       return {
-        title: 'Categoría no encontrada | Lo que los bikers quieren',
-        description: 'La categoría solicitada no se encuentra disponible.',
-        robots: { index: false, follow: false },
+        title: 'Categoría de Accesorios | Lo que los bikers quieren',
+        description: 'Explora los mejores accesorios y repuestos para motos en Venezuela.',
       };
     }
 
@@ -79,24 +77,17 @@ export default async function CategoryPage({ params }: PageProps) {
     slug = resolved?.slug || '';
   } catch (err) {
     console.warn('Error resolving category params:', err);
-    notFound();
-  }
-
-  if (!slug) {
-    notFound();
   }
 
   let categoria: string | null = null;
-  try {
-    categoria = await getCategoryBySlug(slug);
-  } catch (err) {
-    console.error('Error fetching category in CategoryPage:', err);
+  if (slug) {
+    try {
+      categoria = await getCategoryBySlug(slug);
+    } catch (err) {
+      console.warn('Server-side getCategoryBySlug fallback triggered:', err);
+      categoria = null;
+    }
   }
 
-  // Si la categoría no existe en el catálogo, retornar 404 amigable
-  if (!categoria) {
-    notFound();
-  }
-
-  return <CategoryRouteClient slug={slug} initialCategory={categoria} />;
+  return <CategoryRouteClient slug={slug} initialCategory={categoria || undefined} />;
 }
