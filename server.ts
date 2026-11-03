@@ -54,13 +54,32 @@ function formatCategoryDisplay(category: string = ''): string {
     .join(' ');
 }
 
-function slugify(text?: string | null): string {
+function normalizeSlug(text?: string | null): string {
   if (!text) return '';
-  return removeAccents(String(text))
+  let str = String(text);
+  try {
+    str = decodeURIComponent(str);
+  } catch {}
+
+  str = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  return removeAccents(str)
     .toLowerCase()
+    .replace(/[ñ]/gi, 'n')
+    .replace(/\bacompa-ante\b/gi, 'acompanante')
+    .replace(/acompa-ante/gi, 'acompanante')
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+function toAlphaNumericKey(text?: string | null): string {
+  if (!text) return '';
+  return normalizeSlug(text).replace(/[^a-z0-9]/g, '');
+}
+
+function slugify(text?: string | null): string {
+  return normalizeSlug(text);
 }
 
 function getProductSlug(product: { id: string; nombre?: string; grupo_nombre?: string }): string {
@@ -70,58 +89,142 @@ function getProductSlug(product: { id: string; nombre?: string; grupo_nombre?: s
 }
 
 function findProductBySlugOrId(products: any[], param: string): any | undefined {
-  if (!param || products.length === 0) return undefined;
-  const cleanParam = decodeURIComponent(param).trim().toLowerCase();
-  const slugParam = slugify(cleanParam);
+  if (!param || !Array.isArray(products) || products.length === 0) return undefined;
+
+  let rawParam = String(param).trim();
+  try {
+    rawParam = decodeURIComponent(rawParam);
+  } catch {}
+
+  const cleanParam = rawParam.toLowerCase().trim();
+  const targetSlug = slugify(cleanParam);
+  const targetKey = toAlphaNumericKey(cleanParam);
 
   // 1. Coincidencia exacta por ID de Firestore
-  const byId = products.find(p => p.id && p.id.toLowerCase() === cleanParam);
+  const byId = products.find(p => p.id && String(p.id).toLowerCase() === cleanParam);
   if (byId) return byId;
 
   // 2. Coincidencia por SKU
-  const bySku = products.find(p => p.sku && p.sku.toLowerCase() === cleanParam);
+  const bySku = products.find(p => p.sku && String(p.sku).toLowerCase() === cleanParam);
   if (bySku) return bySku;
 
-  // 3. Coincidencia exacta por slug de nombre o grupo
+  // 3. Coincidencia exacta por slug normalizado (nombre, grupo_nombre, variante, etc.)
   const bySlug = products.find(p => {
     const sName = slugify(p.nombre);
     const sGroup = slugify(p.grupo_nombre);
-    return (sName && sName === slugParam) || (sGroup && sGroup === slugParam);
+    const sProd = slugify(getProductSlug(p));
+    const sVar = slugify(p.variante_nombre);
+    const sGroupVar = slugify(`${p.grupo_nombre || ''} ${p.variante_nombre || ''}`);
+    const sNameVar = slugify(`${p.nombre || ''} ${p.variante_nombre || ''}`);
+    const sGroupNombre = slugify(`${p.grupo_nombre || ''} ${p.nombre || ''}`);
+
+    return (
+      (sName && sName === targetSlug) ||
+      (sGroup && sGroup === targetSlug) ||
+      (sProd && sProd === targetSlug) ||
+      (sVar && sVar === targetSlug) ||
+      (sGroupVar && sGroupVar === targetSlug) ||
+      (sNameVar && sNameVar === targetSlug) ||
+      (sGroupNombre && sGroupNombre === targetSlug)
+    );
   });
   if (bySlug) return bySlug;
 
-  // 4. Si el parámetro incluye el ID compuesto (ej: "37-tapa-suichera")
+  // 4. Coincidencia alfanumérica pura (ignora guiones y espacios)
+  if (targetKey.length >= 3) {
+    const byAlphaNumeric = products.find(p => {
+      const kName = toAlphaNumericKey(p.nombre);
+      const kGroup = toAlphaNumericKey(p.grupo_nombre);
+      const kProd = toAlphaNumericKey(getProductSlug(p));
+      const kVar = toAlphaNumericKey(p.variante_nombre);
+      const kGroupVar = toAlphaNumericKey(`${p.grupo_nombre || ''} ${p.variante_nombre || ''}`);
+      const kNameVar = toAlphaNumericKey(`${p.nombre || ''} ${p.variante_nombre || ''}`);
+
+      return (
+        (kName && kName === targetKey) ||
+        (kGroup && kGroup === targetKey) ||
+        (kProd && kProd === targetKey) ||
+        (kVar && kVar === targetKey) ||
+        (kGroupVar && kGroupVar === targetKey) ||
+        (kNameVar && kNameVar === targetKey)
+      );
+    });
+    if (byAlphaNumeric) return byAlphaNumeric;
+  }
+
+  // 5. Parámetro compuesto con ID (ej: "37-tapa-suichera" o "tapa-suichera-37")
   const byComposite = products.find(p => {
     if (!p.id) return false;
-    const lowerId = p.id.toLowerCase();
+    const lowerId = String(p.id).toLowerCase();
     return cleanParam.startsWith(`${lowerId}-`) || cleanParam.endsWith(`-${lowerId}`);
   });
   if (byComposite) return byComposite;
 
-  // 5. Coincidencia parcial si el slug comienza con el parámetro
-  const byPartial = products.find(p => {
-    const sName = slugify(p.nombre);
-    const sGroup = slugify(p.grupo_nombre);
-    if (!sName && !sGroup) return false;
-    return (
-      (sName && (sName.startsWith(slugParam) || slugParam.startsWith(sName))) ||
-      (sGroup && (sGroup.startsWith(slugParam) || slugParam.startsWith(sGroup)))
-    );
-  });
-  if (byPartial) return byPartial;
+  // 6. Coincidencia por prefijo / inclusión
+  if (targetSlug.length >= 6) {
+    const byPartial = products.find(p => {
+      const sName = slugify(p.nombre);
+      const sGroup = slugify(p.grupo_nombre);
+      const sProd = slugify(getProductSlug(p));
+      return (
+        (sName && (sName.startsWith(targetSlug) || targetSlug.startsWith(sName))) ||
+        (sGroup && (sGroup.startsWith(targetSlug) || targetSlug.startsWith(sGroup))) ||
+        (sProd && (sProd.startsWith(targetSlug) || targetSlug.startsWith(sProd)))
+      );
+    });
+    if (byPartial) return byPartial;
+  }
+
+  // 7. Búsqueda tolerante por tokens relevantes (ej. ["acompanante", "pato", "psyduck", "metralleta"])
+  const stopWords = new Set(['de', 'la', 'el', 'los', 'las', 'en', 'para', 'con', 'y', 'a', 'del', 'un', 'una', 'por']);
+  const tokens = targetSlug
+    .split('-')
+    .map(t => t.trim())
+    .filter(t => t.length > 2 && !stopWords.has(t));
+
+  if (tokens.length >= 2) {
+    let bestMatch: any = undefined;
+    let maxMatchCount = 0;
+
+    for (const p of products) {
+      const candidateText = normalizeSlug(`${p.grupo_nombre || ''} ${p.nombre || ''} ${p.variante_nombre || ''}`);
+      let matchCount = 0;
+      for (const token of tokens) {
+        if (candidateText.includes(token)) {
+          matchCount++;
+        }
+      }
+
+      if (matchCount >= 2 && matchCount > maxMatchCount) {
+        maxMatchCount = matchCount;
+        bestMatch = p;
+      }
+    }
+
+    if (bestMatch && maxMatchCount >= Math.ceil(tokens.length * 0.5)) {
+      return bestMatch;
+    }
+  }
 
   return undefined;
 }
 
 function findCategoryBySlug(categories: string[], param: string): string | undefined {
-  if (!param || categories.length === 0) return undefined;
+  if (!param || !Array.isArray(categories) || categories.length === 0) return undefined;
   const cleanParam = decodeURIComponent(param).trim().toLowerCase();
   const slugParam = slugify(cleanParam);
+  const keyParam = toAlphaNumericKey(cleanParam);
 
   return categories.find(cat => {
     const sCat = slugify(cat);
     const kCat = getCategoryKey(cat);
-    return sCat === slugParam || kCat === cleanParam || slugify(kCat) === slugParam;
+    const keyCat = toAlphaNumericKey(cat);
+    return (
+      sCat === slugParam ||
+      kCat === cleanParam ||
+      slugify(kCat) === slugParam ||
+      (keyParam.length >= 3 && keyCat === keyParam)
+    );
   });
 }
 
@@ -179,12 +282,20 @@ function formatDirectImageUrl(rawUrl?: string | null): string {
     }
   }
 
-  // Dropbox
-  if (url.includes('dropbox.com')) {
-    url = url.replace('www.dropbox.com', 'dl.dropboxusercontent.com');
-    url = url.replace(/[?&]dl=0/, '?dl=1');
-    return url;
+  // Asegurar protocolo https:// y resolver rutas relativas
+  if (url.startsWith('http://')) {
+    url = url.replace('http://', 'https://');
+  } else if (!url.startsWith('https://')) {
+    if (url.startsWith('/')) {
+      url = `https://www.loquelosbikersquieren.com${url}`;
+    } else {
+      url = `https://${url}`;
+    }
   }
+
+  try {
+    url = encodeURI(url);
+  } catch {}
 
   return url;
 }
@@ -382,14 +493,23 @@ async function injectMetadata(htmlTemplate: string, req: Request): Promise<strin
     canonicalUrl = `${baseUrl}/categoria/${slugify(catSlug)}`;
   }
 
-  if (ogImage.startsWith('http://')) {
-    ogImage = ogImage.replace('http://', 'https://');
+  let verifiedOgImage = (ogImage || '').trim();
+  if (verifiedOgImage.startsWith('http://')) {
+    verifiedOgImage = verifiedOgImage.replace('http://', 'https://');
+  } else if (verifiedOgImage.startsWith('/')) {
+    verifiedOgImage = `${baseUrl}${verifiedOgImage}`;
+  } else if (!verifiedOgImage.startsWith('https://')) {
+    verifiedOgImage = `${baseUrl}/LOGO.png`;
   }
+  try {
+    verifiedOgImage = encodeURI(verifiedOgImage);
+  } catch {}
+
   if (canonicalUrl.startsWith('http://')) {
     canonicalUrl = canonicalUrl.replace('http://', 'https://');
   }
 
-  // Inyección de etiquetas Open Graph con soporte recomendado de 800x800 para WhatsApp
+  // Inyección de etiquetas Open Graph con soporte recomendado de 1200x630 para WhatsApp
   const tagsToInject = `
     <title>${escapeHtml(ogTitle)}</title>
     <meta name="title" content="${escapeHtml(ogTitle)}" />
@@ -398,15 +518,15 @@ async function injectMetadata(htmlTemplate: string, req: Request): Promise<strin
     <meta property="og:site_name" content="Lo que los bikers quieren" />
     <meta property="og:title" content="${escapeHtml(ogTitle)}" />
     <meta property="og:description" content="${escapeHtml(ogDescription)}" />
-    <meta property="og:image" content="${escapeHtml(ogImage)}" />
-    <meta property="og:image:secure_url" content="${escapeHtml(ogImage)}" />
-    <meta property="og:image:width" content="800" />
-    <meta property="og:image:height" content="800" />
+    <meta property="og:image" content="${escapeHtml(verifiedOgImage)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(verifiedOgImage)}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(ogTitle)}" />
     <meta name="twitter:description" content="${escapeHtml(ogDescription)}" />
-    <meta name="twitter:image" content="${escapeHtml(ogImage)}" />
+    <meta name="twitter:image" content="${escapeHtml(verifiedOgImage)}" />
     <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
     ${structuredDataJson}
   `;

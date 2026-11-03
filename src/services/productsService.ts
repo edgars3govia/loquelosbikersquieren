@@ -117,17 +117,26 @@ export function formatDirectImageUrl(rawUrl?: string | null): string {
     url = url.replace(/[?&]dl=0/, '?dl=1');
   }
 
-  // Asegurar protocolo https://
+  // Asegurar protocolo https:// y resolver rutas relativas
   if (url.startsWith('http://')) {
     url = url.replace('http://', 'https://');
   } else if (!url.startsWith('https://')) {
-    url = `https://${url}`;
+    if (url.startsWith('/')) {
+      url = `https://www.loquelosbikersquieren.com${url}`;
+    } else {
+      url = `https://${url}`;
+    }
   }
+
+  // Aplicar encodeURI para escapar espacios y caracteres especiales en WhatsApp
+  try {
+    url = encodeURI(url);
+  } catch {}
 
   return url;
 }
 
-// Imagen por defecto en caso de no poseer imagen específica
+// Imagen por defecto corporativa en caso de no poseer imagen específica
 export const DEFAULT_OG_IMAGE = 'https://www.loquelosbikersquieren.com/LOGO.png';
 
 // Caché en memoria para respuestas ultra rápidas (< 10ms) en rastreadores de WhatsApp/Facebook
@@ -199,7 +208,10 @@ export async function getProductBySlug(param: string): Promise<ProductDetails | 
                      targetProduct.grupo_kit_imagen ||
                      '';
 
-    const formattedImage = formatDirectImageUrl(rawImage) || DEFAULT_OG_IMAGE;
+    let formattedImage = formatDirectImageUrl(rawImage);
+    if (!formattedImage || !formattedImage.startsWith('https://')) {
+      formattedImage = DEFAULT_OG_IMAGE;
+    }
 
     // Recopilar galería de imágenes
     const gallery: string[] = [];

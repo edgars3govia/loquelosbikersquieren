@@ -135,14 +135,22 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // Asegurar protocolo https:// en la imagen para WhatsApp
-    if (ogImage && ogImage.startsWith('http://')) {
-      ogImage = ogImage.replace('http://', 'https://');
+    // Asegurar protocolo https://, codificación encodeURI y fallback estricto para WhatsApp
+    let verifiedOgImage = (ogImage || '').trim();
+    if (verifiedOgImage.startsWith('http://')) {
+      verifiedOgImage = verifiedOgImage.replace('http://', 'https://');
+    } else if (verifiedOgImage.startsWith('/')) {
+      verifiedOgImage = `https://www.loquelosbikersquieren.com${verifiedOgImage}`;
+    } else if (!verifiedOgImage.startsWith('https://')) {
+      verifiedOgImage = DEFAULT_OG_IMAGE;
     }
+    try {
+      verifiedOgImage = encodeURI(verifiedOgImage);
+    } catch {}
 
     const safeTitle = escapeHtml(title);
     const safeDesc = escapeHtml(description);
-    const safeImg = escapeHtml(ogImage);
+    const safeImg = escapeHtml(verifiedOgImage);
     const safeUrl = escapeHtml(canonicalUrl);
 
     const headInject = `
@@ -160,8 +168,8 @@ export default async function handler(req: any, res: any) {
     <meta property="og:description" content="${safeDesc}" />
     <meta property="og:image" content="${safeImg}" />
     <meta property="og:image:secure_url" content="${safeImg}" />
-    <meta property="og:image:width" content="800" />
-    <meta property="og:image:height" content="800" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="${safeTitle}" />
 
     <!-- Twitter Card -->

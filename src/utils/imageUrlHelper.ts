@@ -73,6 +73,21 @@ export function formatDirectImageUrl(rawUrl?: string | null): string {
     }
   }
 
+  // Asegurar protocolo https:// y resolver rutas relativas
+  if (url.startsWith('http://')) {
+    url = url.replace('http://', 'https://');
+  } else if (!url.startsWith('https://')) {
+    if (url.startsWith('/')) {
+      url = `https://www.loquelosbikersquieren.com${url}`;
+    } else {
+      url = `https://${url}`;
+    }
+  }
+
+  try {
+    url = encodeURI(url);
+  } catch {}
+
   return url;
 }
 

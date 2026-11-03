@@ -25,15 +25,53 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     }
 
     const producto = await getProductBySlug(slug);
+    const pageUrl = `https://www.loquelosbikersquieren.com/producto/${slug}`;
+    const defaultLogo = 'https://www.loquelosbikersquieren.com/LOGO.png';
 
     if (!producto) {
       return {
         title: 'Producto | Lo que los bikers quieren',
         description: 'Accesorios y repuestos exclusivos para moteros en Venezuela.',
+        alternates: {
+          canonical: pageUrl,
+        },
+        openGraph: {
+          title: 'Lo que los bikers quieren | Tienda de Accesorios y Repuestos',
+          description: 'Accesorios y repuestos exclusivos para moteros en Venezuela.',
+          url: pageUrl,
+          siteName: 'Lo que los bikers quieren',
+          locale: 'es_VE',
+          type: 'website',
+          images: [
+            {
+              url: defaultLogo,
+              width: 1200,
+              height: 630,
+              alt: 'Lo que los bikers quieren',
+            },
+          ],
+        },
+        twitter: {
+          card: 'summary_large_image',
+          title: 'Lo que los bikers quieren | Tienda de Accesorios y Repuestos',
+          description: 'Accesorios y repuestos exclusivos para moteros en Venezuela.',
+          images: [defaultLogo],
+        },
       };
     }
 
-    const pageUrl = `https://www.loquelosbikersquieren.com/producto/${slug}`;
+    let safeImage = (producto.imagenUrl || '').trim();
+    if (safeImage.startsWith('http://')) {
+      safeImage = safeImage.replace('http://', 'https://');
+    } else if (safeImage.startsWith('/')) {
+      safeImage = `https://www.loquelosbikersquieren.com${safeImage}`;
+    } else if (!safeImage.startsWith('https://')) {
+      safeImage = defaultLogo;
+    }
+    try {
+      safeImage = encodeURI(safeImage);
+    } catch {}
+
     const priceText = producto.precioVentaUSD > 0 ? ` - $${producto.precioVentaUSD.toFixed(2)} USD` : '';
     const title = `${producto.nombre}${priceText} | Lo que los bikers quieren`;
     const description = producto.descripcion || 'Accesorios, repuestos y equipamiento exclusivo para moteros en Venezuela.';
@@ -53,9 +91,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         type: 'website',
         images: [
           {
-            url: producto.imagenUrl,
-            width: 800,
-            height: 800,
+            url: safeImage,
+            width: 1200,
+            height: 630,
             alt: producto.nombre,
           },
         ],
@@ -64,14 +102,31 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         card: 'summary_large_image',
         title: `${producto.nombre}${priceText}`,
         description,
-        images: [producto.imagenUrl],
+        images: [safeImage],
       },
     };
   } catch (error) {
     console.error('Error generating metadata in /producto/[slug]:', error);
+    const defaultLogo = 'https://www.loquelosbikersquieren.com/LOGO.png';
     return {
       title: 'Accesorio para moto | Lo que los bikers quieren',
       description: 'Accesorios y repuestos exclusivos para moteros en Venezuela.',
+      openGraph: {
+        title: 'Lo que los bikers quieren | Tienda de Accesorios y Repuestos',
+        description: 'Accesorios y repuestos exclusivos para moteros en Venezuela.',
+        images: [
+          {
+            url: defaultLogo,
+            width: 1200,
+            height: 630,
+            alt: 'Lo que los bikers quieren',
+          },
+        ],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        images: [defaultLogo],
+      },
     };
   }
 }
