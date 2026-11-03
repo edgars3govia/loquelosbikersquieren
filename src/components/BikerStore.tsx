@@ -2817,7 +2817,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               </div>
             </div>
 
-            {/* OMNI SEARCH BAR CENTRAL: FONDO BLANCO PURO #FFFFFF, TEXTO Y PLACEHOLDER NEGRO CARBÓN #111111 */}
+            {/* OMNI SEARCH BAR CENTRAL: FONDO BLANCO PURO #FFFFFF, TEXTO NEGRO Y PLACEHOLDER GRIS SUTIL */}
             <div className="flex-1 max-w-xl">
               <div className="relative flex items-center">
                 <input
@@ -2837,10 +2837,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                     }
                   }}
                   placeholder={getText('searchPlaceholder') || "busca aqui tus accesorios favoritos, acompañante, led, tapa suichera.."}
-                  className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-11 pr-10 py-2 text-base md:text-sm text-[#111111] placeholder:text-[#111111] font-medium outline-none transition-all shadow-sm"
+                  className="w-full bg-[#FFFFFF] border-2 border-transparent focus:border-[#FF5200] rounded-xl pl-11 pr-10 py-2 text-base md:text-sm text-[#111111] placeholder:text-gray-400 font-medium outline-none transition-all shadow-sm"
                   style={{ fontSize: '16px' }}
                 />
-                <Search size={16} className="absolute left-4 text-[#111111] pointer-events-none" />
+                <Search size={16} className="absolute left-4 text-gray-400 pointer-events-none" />
                 {searchQuery && (
                   <button
                     type="button"
@@ -2912,10 +2912,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   }
                 }}
                 placeholder={getText('searchPlaceholder') || "buscar accesorios..."}
-                className="w-full bg-[#FFFFFF] border border-transparent focus:border-[#FF5200] rounded-xl pl-8 pr-7 py-1.5 text-base text-[#111111] placeholder:text-gray-500 font-medium outline-none shadow-xs truncate leading-normal"
+                className="w-full bg-[#FFFFFF] border border-transparent focus:border-[#FF5200] rounded-xl pl-8 pr-7 py-1.5 text-base text-[#111111] placeholder:text-gray-400 font-medium outline-none shadow-xs truncate leading-normal"
                 style={{ fontSize: '16px' }}
               />
-              <Search size={14} className="absolute left-2.5 text-gray-600 pointer-events-none shrink-0" />
+              <Search size={14} className="absolute left-2.5 text-gray-400 pointer-events-none shrink-0" />
               {searchQuery && (
                 <button
                   type="button"
