@@ -46,7 +46,8 @@ import {
   Boxes,
   MessageCircle,
   Menu,
-  Maximize2
+  Maximize2,
+  Layers
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, addDoc, writeBatch, increment } from 'firebase/firestore';
@@ -756,6 +757,19 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [trackingQuery, setTrackingQuery] = useState('');
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDrawerCategoriesOpen, setIsDrawerCategoriesOpen] = useState(false);
+
+  // Close hamburger drawer on ESC key
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMobileMenuOpen]);
 
   // Shipping Form State (The exact 4 fields requested + payment method)
   const [clienteNombre, setClienteNombre] = useState('');
@@ -766,6 +780,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [metodoEntrega, setMetodoEntrega] = useState<'retiro' | 'envio'>('envio');
   const [metodoPago, setMetodoPago] = useState<string>('Pago Móvil');
   const [notasCliente, setNotasCliente] = useState('');
+  const [isPickupPromptOpen, setIsPickupPromptOpen] = useState(false);
   
   // Payment mode: 'whatsapp' (manual coordination) or 'comprobante' (instant upload & automatic entry)
   const [tipoConfirmacion, setTipoConfirmacion] = useState<'whatsapp' | 'comprobante'>('comprobante');
@@ -2331,18 +2346,34 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     const isPickupInStore = metodoEntrega === 'retiro';
     const isStorePayment = metodoPago.toLowerCase() === 'pago en tienda';
 
-    // Para envíos nacionales, se exigen los 4 campos obligatorios de encomienda
-    if (!isPickupInStore) {
-      if (!clienteNombre.trim()) {
-        setOrderFormError("Por favor ingresa tu Nombre y Apellido.");
-        return;
+    // 1. Nombre y Teléfono son obligatorios para TODOS los pedidos (tanto retiro como envío)
+    if (!clienteNombre.trim()) {
+      setOrderFormError(
+        isPickupInStore
+          ? "Por favor ingresa tu Nombre y Apellido para saber a quién apartarle el producto."
+          : "Por favor ingresa tu Nombre y Apellido."
+      );
+      if (isPickupInStore && isStorePayment) {
+        setIsPickupPromptOpen(true);
       }
+      return;
+    }
+    if (!clienteTelefono.trim()) {
+      setOrderFormError(
+        isPickupInStore
+          ? "Por favor ingresa tu Número de Teléfono o WhatsApp para apartar y coordinar tu retiro."
+          : "Por favor ingresa tu Número de Teléfono o WhatsApp."
+      );
+      if (isPickupInStore && isStorePayment) {
+        setIsPickupPromptOpen(true);
+      }
+      return;
+    }
+
+    // 2. Para envíos nacionales, se exigen Cédula y Dirección de Agencia
+    if (!isPickupInStore) {
       if (!clienteCedula.trim()) {
         setOrderFormError("Por favor ingresa tu Número de Cédula.");
-        return;
-      }
-      if (!clienteTelefono.trim()) {
-        setOrderFormError("Por favor ingresa tu Número de Teléfono o WhatsApp.");
         return;
       }
       if (!direccionAgencia.trim()) {
@@ -2366,7 +2397,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       const fullShippingAddress = isPickupInStore
         ? 'Retiro en tienda (Mérida) - Moto Cristo'
         : `${agenciaSeleccionada.toUpperCase()}: ${direccionAgencia.trim()}`;
-      const effectiveClientName = clienteNombre.trim() || (isPickupInStore ? 'Cliente (Retiro en tienda)' : 'Cliente');
+      const effectiveClientName = clienteNombre.trim() || 'Cliente';
       const effectiveClientCedula = clienteCedula.trim() || 'N/A';
       const effectiveClientPhone = clienteTelefono.trim() || 'N/A';
 
@@ -2506,6 +2537,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         setComprobanteUrl(null);
         setComprobanteFileName(null);
         setReferenciaPago('');
+        setIsPickupPromptOpen(false);
         setIsCheckoutOpen(false);
         setCompletedOrder(newOrder);
       } else {
@@ -2539,6 +2571,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
         // Clear cart & state
         setCart([]);
+        setIsPickupPromptOpen(false);
         setIsCheckoutOpen(false);
         setCompletedOrder(newOrder);
 
@@ -2756,8 +2789,19 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         <header className="bg-[#000000]">
           {/* DESKTOP HEADER ROW */}
           <div className="hidden md:flex max-w-7xl mx-auto px-6 py-3 items-center justify-between gap-4">
-            {/* LOGO PRINCIPAL */}
+            {/* LOGO PRINCIPAL Y BOTÓN DE MENÚ */}
             <div className="flex items-center gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(true)}
+                className="p-2 text-gray-200 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer flex items-center gap-2 active:scale-95 border border-white/10"
+                aria-label="Abrir menú"
+                title="Abrir menú"
+              >
+                <Menu size={20} strokeWidth={2.2} />
+                <span className="text-xs font-bold uppercase tracking-wider text-gray-200">Menú</span>
+              </button>
+
               <div className="flex items-center">
                 <img src="/logo png.png" alt="Lo que los bikers quieren" className="h-12 sm:h-14 w-auto object-contain drop-shadow-sm" />
               </div>
@@ -3516,10 +3560,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       </main>
 
       {/* ========================================================= */}
-      {/* MENÚ HAMBURGUESA MÓVIL DESLIZABLE (DRAWER TIPO SHEIN)     */}
+      {/* MENÚ HAMBURGUESA LATERAL (MÓVIL Y ESCRITORIO)             */}
       {/* ========================================================= */}
       {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-[99999] md:hidden">
+        <div className="fixed inset-0 z-[99999]">
           {/* Backdrop oscuro */}
           <div
             onClick={() => setIsMobileMenuOpen(false)}
@@ -3545,7 +3589,52 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             </div>
 
             {/* Contenido scrolleable */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3.5 custom-scrollbar">
+              {/* 1. Botón Canal VIP de WhatsApp */}
+              <a
+                href="https://whatsapp.com/channel/0029Vb8OHq784OmKSOFskY3A"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="w-full py-3 px-3.5 rounded-2xl bg-gradient-to-r from-[#25D366] to-[#128C7E] text-white text-xs font-bold flex items-center justify-between shadow-md hover:opacity-95 transition-all cursor-pointer group active:scale-98"
+                aria-label="Canal VIP de WhatsApp"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0">
+                    <WhatsAppVectorIcon className="w-4 h-4 text-white" size={18} />
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-extrabold text-[13px] leading-tight text-white">Canal VIP de WhatsApp</span>
+                      <span className="px-1.5 py-0.5 rounded-full bg-white text-[#128C7E] text-[9px] font-black uppercase tracking-wider">VIP</span>
+                    </div>
+                    <p className="text-[10px] text-emerald-100 font-normal leading-tight mt-0.5">Ofertas y lanzamientos exclusivos</p>
+                  </div>
+                </div>
+                <ArrowRight size={16} className="text-white/80 group-hover:translate-x-0.5 transition-transform shrink-0" />
+              </a>
+
+              {/* 2. Botón Contacto Directo WhatsApp */}
+              <a
+                href={`https://api.whatsapp.com/send?phone=584128276786&text=${encodeURIComponent('¡Hola! Me gustaría hacer una consulta sobre la tienda.')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="w-full py-3 px-3.5 rounded-2xl bg-black hover:bg-neutral-800 text-white text-xs font-bold flex items-center justify-between shadow-md transition-all cursor-pointer group active:scale-98 border border-neutral-800"
+                aria-label="Contacto directo por WhatsApp"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[#25D366] flex items-center justify-center shrink-0 shadow-xs">
+                    <WhatsAppVectorIcon className="w-4 h-4 text-white" size={18} />
+                  </div>
+                  <div className="text-left">
+                    <span className="font-extrabold text-[13px] leading-tight text-white block">Contacto directo WhatsApp</span>
+                    <p className="text-[10px] text-gray-300 font-normal leading-tight mt-0.5">+58 412-8276786 (Atención personalizada)</p>
+                  </div>
+                </div>
+                <ArrowRight size={16} className="text-gray-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+              </a>
+
               {/* Tasa BCV */}
               <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-center justify-between text-xs font-medium text-[#111111]">
                 <span className="flex items-center gap-1.5 text-gray-700">
@@ -3556,35 +3645,33 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 </span>
               </div>
 
-              {/* Botón Directo al Carrito en Menú Móvil */}
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  setIsCartOpen(true);
-                }}
-                className="w-full py-2.5 px-3 rounded-xl bg-black hover:bg-neutral-800 text-white text-xs font-medium flex items-center justify-between cursor-pointer shadow-sm transition-all active:scale-98"
-                aria-label="Ir al carrito"
-              >
-                <div className="flex items-center gap-2">
-                  <ShoppingCart size={15} />
-                  <span>Ver carrito de compras</span>
-                </div>
-                {cartTotals.totalUnits > 0 ? (
-                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold">
-                    {cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'artículo' : 'artículos'}
-                  </span>
-                ) : (
-                  <span className="text-gray-400 text-[10px]">0 artículos</span>
-                )}
-              </button>
+              {/* Botón Desplegable de Categorías */}
+              <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => setIsDrawerCategoriesOpen((prev) => !prev)}
+                  className="w-full p-3.5 bg-gray-50 hover:bg-gray-100 flex items-center justify-between cursor-pointer transition-colors"
+                  aria-expanded={isDrawerCategoriesOpen}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-black text-white flex items-center justify-center">
+                      <Layers size={14} />
+                    </div>
+                    <div className="text-left">
+                      <span className="text-xs font-bold text-gray-900 block">Categorías de productos</span>
+                      <span className="text-[10px] text-gray-500 font-medium">
+                        {isDrawerCategoriesOpen ? 'Toca para contraer' : 'Toca para desplegar categorías'}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronDown
+                    size={16}
+                    className={`text-gray-500 transition-transform duration-200 ${isDrawerCategoriesOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
 
-              {/* Categorías y Subcategorías */}
-              <div>
-                <h4 className="text-[11px] font-medium text-gray-400 mb-2 px-1">
-                  Categorías
-                </h4>
-                <div className="space-y-1">
+                {isDrawerCategoriesOpen && (
+                  <div className="p-2 space-y-1 border-t border-gray-200 bg-white animate-fade-in">
                   <button
                     type="button"
                     onClick={() => {
@@ -3703,7 +3790,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       </div>
                     );
                   })}
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Acciones de Contacto y Tienda */}
@@ -4781,12 +4869,84 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   </div>
 
                   {/* ========================================================= */}
+                  {/* CASILLAS OBLIGATORIAS: NOMBRE Y TELÉFONO PARA RETIRO       */}
+                  {/* ========================================================= */}
+                  {metodoEntrega === 'retiro' && (
+                    <div className="bg-white border border-gray-150 rounded-xl p-3.5 sm:p-4 space-y-2.5 shadow-xs">
+                      <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                        <User size={13} className="text-[#FF5200]" />
+                        <div>
+                          <h5 className="text-xs font-semibold text-[#111111]">
+                            {metodoPago.toLowerCase() === 'pago en tienda'
+                              ? '¿A nombre de quién apartamos el pedido?'
+                              : 'Datos de quien retira en tienda'}
+                          </h5>
+                          <p className="text-[11px] text-gray-500 font-normal">
+                            {metodoPago.toLowerCase() === 'pago en tienda'
+                              ? 'Ingresa tu nombre y teléfono para saber a quién apartarle el producto'
+                              : 'Ingresa estos 2 datos para confirmar tu pedido y coordinar el retiro'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-0.5">
+                        <div className="space-y-1 text-left">
+                          <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
+                            <span>1. Nombre y Apellido *</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={clienteNombre}
+                            onChange={(e) => {
+                              setClienteNombre(e.target.value);
+                              if (orderFormError) setOrderFormError(null);
+                            }}
+                            placeholder="Ej: Carlos Rodriguez"
+                            className={`w-full bg-white border p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 ${
+                              orderFormError && !clienteNombre.trim() ? 'border-rose-500 ring-1 ring-rose-500' : 'border-gray-300 focus:border-black focus:ring-1 focus:ring-black'
+                            }`}
+                          />
+                        </div>
+
+                        <div className="space-y-1 text-left">
+                          <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+                            <WhatsAppVectorIcon size={13} className="text-[#25D366] fill-current shrink-0" />
+                            <span>2. Teléfono / WhatsApp *</span>
+                          </label>
+                          <input
+                            type="tel"
+                            required
+                            value={clienteTelefono}
+                            onChange={(e) => {
+                              setClienteTelefono(e.target.value);
+                              if (orderFormError) setOrderFormError(null);
+                            }}
+                            placeholder="Ej: 0412-1234567"
+                            className={`w-full bg-white border p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono ${
+                              orderFormError && !clienteTelefono.trim() ? 'border-rose-500 ring-1 ring-rose-500' : 'border-gray-300 focus:border-black focus:ring-1 focus:ring-black'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ========================================================= */}
                   {/* BOTÓN FINAL: APARTAR POR WHATSAPP O CONFIRMAR PAGO       */}
                   {/* ========================================================= */}
                   {metodoPago.toLowerCase() === 'pago en tienda' ? (
                     <div className="pt-1">
                       <button
-                        type="submit"
+                        type="button"
+                        onClick={(e) => {
+                          if (!clienteNombre.trim() || !clienteTelefono.trim()) {
+                            setOrderFormError("Por favor ingresa tu Nombre y Teléfono para saber a quién apartarle el producto.");
+                            setIsPickupPromptOpen(true);
+                            return;
+                          }
+                          handleSubmitOrder(e);
+                        }}
                         disabled={isSubmittingOrder}
                         className="w-full py-3.5 bg-[#25D366] hover:bg-[#20ba59] active:scale-98 transition-all text-white font-medium text-xs sm:text-sm rounded-lg flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                       >
@@ -4864,6 +5024,119 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 </div>
               )}
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL DE CONFIRMACIÓN: DATOS PARA APARTAR POR WHATSAPP     */}
+      {/* ========================================================= */}
+      {isPickupPromptOpen && (
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsPickupPromptOpen(false);
+          }}
+          className="fixed inset-0 z-[100000] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white border border-gray-200 rounded-3xl w-full max-w-sm p-5 sm:p-6 text-left space-y-4 shadow-2xl animate-scale-up text-[#111111] cursor-default"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
+                  <WhatsAppVectorIcon size={20} className="fill-current text-[#25D366]" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-[#111111]">
+                    ¿A quién le apartamos el pedido?
+                  </h4>
+                  <p className="text-[11px] text-gray-500 font-normal">
+                    Ingresa tus 2 datos para confirmar y apartar en Moto Cristo
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPickupPromptOpen(false)}
+                className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center cursor-pointer transition-colors shrink-0"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {orderFormError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-2.5 rounded-xl text-xs font-normal flex items-center gap-2 animate-shake">
+                  <AlertCircle size={14} className="text-rose-600 shrink-0" />
+                  <span>{orderFormError}</span>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
+                  <User size={12} className="text-gray-500" />
+                  <span>1. Nombre y Apellido *</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={clienteNombre}
+                  onChange={(e) => {
+                    setClienteNombre(e.target.value);
+                    setOrderFormError(null);
+                  }}
+                  placeholder="Ej: Carlos Rodriguez"
+                  className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-xl text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
+                  <WhatsAppVectorIcon size={12} className="text-[#25D366] fill-current shrink-0" />
+                  <span>2. Número de Teléfono o WhatsApp *</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={clienteTelefono}
+                  onChange={(e) => {
+                    setClienteTelefono(e.target.value);
+                    setOrderFormError(null);
+                  }}
+                  placeholder="Ej: 0412-1234567"
+                  className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-xl text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  if (!clienteNombre.trim()) {
+                    setOrderFormError("Por favor ingresa tu Nombre y Apellido para saber a quién apartarle el producto.");
+                    return;
+                  }
+                  if (!clienteTelefono.trim()) {
+                    setOrderFormError("Por favor ingresa tu Número de Teléfono o WhatsApp.");
+                    return;
+                  }
+                  setIsPickupPromptOpen(false);
+                  handleSubmitOrder(e);
+                }}
+                disabled={isSubmittingOrder}
+                className="w-full py-3 bg-[#25D366] hover:bg-[#20ba59] active:scale-98 transition-all text-white font-medium text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer"
+              >
+                {isSubmittingOrder ? (
+                  <RotateCcw size={16} className="animate-spin text-white" />
+                ) : (
+                  <WhatsAppVectorIcon size={16} className="text-white fill-current shrink-0" />
+                )}
+                <span>Confirmar y apartar por WhatsApp</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
