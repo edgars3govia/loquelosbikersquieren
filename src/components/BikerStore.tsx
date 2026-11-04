@@ -2794,12 +2794,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(true)}
-                className="p-2 text-gray-200 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer flex items-center gap-2 active:scale-95 border border-white/10"
+                className="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700/80 hover:border-neutral-500 rounded-xl text-neutral-100 hover:text-white transition-all duration-200 cursor-pointer flex items-center gap-2 active:scale-95 shadow-sm group"
                 aria-label="Abrir menú"
-                title="Abrir menú"
+                title="Abrir menú de navegación"
               >
-                <Menu size={20} strokeWidth={2.2} />
-                <span className="text-xs font-bold uppercase tracking-wider text-gray-200">Menú</span>
+                <Menu size={18} strokeWidth={2.4} className="text-neutral-100 group-hover:text-emerald-400 transition-colors" />
+                <span className="text-xs font-medium uppercase tracking-wide text-neutral-100 group-hover:text-white transition-colors">Menú</span>
               </button>
 
               <div className="flex items-center">
