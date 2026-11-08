@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Globe } from 'lucide-react';
+import { isTikTokOrInAppBrowser } from '../utils/tiktokDetector';
 
 let activeNoticeMounted = false;
 
@@ -20,15 +21,7 @@ export function TikTokInAppNotice() {
     // Diagnóstico en consola para auditar UserAgent y Referrer en dispositivos reales
     console.log("TikTokInAppNotice montado. UserAgent:", navigator.userAgent, "Referrer:", document.referrer);
 
-    const ua = (navigator.userAgent || '').toLowerCase();
-    const ref = (document.referrer || '').toLowerCase();
-    const isTikTokUA = /musical_ly|bytedance|tiktok|trill|bytefull/.test(ua);
-    const isTikTokRef = ref.includes('tiktok') || ref.includes('tiktoklinksafety');
-    const isAndroidWebView = ua.includes('wv') || (ua.includes('android') && ua.includes('version/'));
-    const isIOSWebView = /(iphone|ipod|ipad)/.test(ua) && !ua.includes('safari');
-    const isTestMode = window.location.search.includes('tiktok_test=1');
-
-    if (isTikTokUA || isTikTokRef || isAndroidWebView || isIOSWebView || isTestMode) {
+    if (isTikTokOrInAppBrowser()) {
       setIsTikTok(true);
     }
 

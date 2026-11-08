@@ -492,6 +492,20 @@ async function injectMetadata(htmlTemplate: string, req: Request): Promise<strin
     }
     canonicalUrl = `${baseUrl}/categoria/${slugify(catSlug)}`;
   }
+  // 3. Ruta de WhatsApp: /whatsapp
+  else if (pathParts[0] === 'whatsapp') {
+    ogTitle = "Atención por WhatsApp | Lo que los bikers quieren";
+    ogDescription = "Canal oficial y atención directa por WhatsApp de Lo que los bikers quieren. Comunícate con nuestros asesores o ingresa a nuestro canal VIP.";
+    ogImage = `${baseUrl}/LOGO.png`;
+    canonicalUrl = `${baseUrl}/whatsapp`;
+  }
+  // 4. Ruta de Canal VIP: /canal
+  else if (pathParts[0] === 'canal') {
+    ogTitle = "Canal VIP de WhatsApp | Lo que los bikers quieren";
+    ogDescription = "Únete a nuestro canal VIP oficial de WhatsApp para recibir ofertas exclusivas, novedades y lanzamientos de accesorios para motos.";
+    ogImage = `${baseUrl}/LOGO.png`;
+    canonicalUrl = `${baseUrl}/canal`;
+  }
 
   let verifiedOgImage = (ogImage || '').trim();
   if (verifiedOgImage.startsWith('http://')) {
@@ -602,7 +616,7 @@ async function startServer() {
 
   // Manejo de renderizado para todas las rutas HTML (Deep Linking + Open Graph Server-Side)
   app.use(async (req: Request, res: Response, next: NextFunction) => {
-    if (req.method !== 'GET') return next();
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     const url = req.originalUrl;
     try {
       let template: string;
@@ -615,6 +629,10 @@ async function startServer() {
       }
 
       const finalHtml = await injectMetadata(template, req);
+      if (req.method === 'HEAD') {
+        res.status(200).set({ 'Content-Type': 'text/html' }).end();
+        return;
+      }
       res.status(200).set({ 'Content-Type': 'text/html' }).end(finalHtml);
     } catch (e) {
       if (!isProd && vite) {

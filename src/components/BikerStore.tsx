@@ -80,6 +80,7 @@ import { PaymentMethodsEditorModal } from './PaymentMethodsEditorModal';
 import { ProductVariantsModal, isValidGroupId } from './ProductVariantsModal';
 import { DEFAULT_PAYMENT_METHODS } from '../constants/defaultPaymentMethods';
 import { fetchTasaOficialBCV, getCachedTasaBCV, DEFAULT_TASA_FALLBACK } from '../lib/tasaService';
+import { STORE_WHATSAPP_PHONE, STORE_WHATSAPP_DISPLAY, STORE_WHATSAPP_VIP_CHANNEL, getWhatsAppDirectUrl } from '../constants/whatsapp';
 
 /**
  * Formatea un texto a formato "Title Case" o "Sentence Case" para títulos limpios y minimalistas
@@ -2790,7 +2791,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const handleSendToWhatsApp = (order: PedidoTienda) => {
     const text = generateOrderWhatsAppText(order);
     const encoded = encodeURIComponent(text);
-    const targetPhone = '584128276786';
+    const targetPhone = STORE_WHATSAPP_PHONE;
     const url = `https://api.whatsapp.com/send?phone=${targetPhone}&text=${encoded}`;
     const a = document.createElement('a');
     a.href = url;
@@ -3716,7 +3717,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <div className="flex-1 overflow-y-auto p-4 space-y-3.5 custom-scrollbar">
               {/* 1. Botón Canal VIP de WhatsApp */}
               <a
-                href="https://whatsapp.com/channel/0029Vb8OHq784OmKSOFskY3A"
+                href={STORE_WHATSAPP_VIP_CHANNEL}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setIsMobileMenuOpen(false)}
@@ -3740,7 +3741,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
               {/* 2. Botón Contacto Directo WhatsApp */}
               <a
-                href={`https://api.whatsapp.com/send?phone=584128276786&text=${encodeURIComponent('¡Hola! Me gustaría hacer una consulta sobre la tienda.')}`}
+                href={getWhatsAppDirectUrl('¡Hola! Me gustaría hacer una consulta sobre la tienda.')}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setIsMobileMenuOpen(false)}
@@ -6170,11 +6171,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <span className="text-emerald-400">Tasa BCV Oficial Garantizada</span>
             <span className="text-gray-600 hidden sm:inline">•</span>
             <a
-              href="https://api.whatsapp.com/send?phone=584128276786&text=Hola!%20Deseo%20hacer%20una%20consulta%20en%20la%20tienda%20online"
+              href={getWhatsAppDirectUrl('Hola! Deseo hacer una consulta en la tienda online')}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-[#25D366] hover:text-[#20ba5a] transition-colors"
-              title="Atención directa por WhatsApp (0412-8276786)"
+              title={`Atención directa por WhatsApp (${STORE_WHATSAPP_DISPLAY})`}
             >
               <img src="/whatsapp.png" alt="WhatsApp" className="w-4 h-4 object-contain shrink-0" />
               <span>Atención WhatsApp</span>
