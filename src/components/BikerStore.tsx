@@ -47,7 +47,8 @@ import {
   MessageCircle,
   Menu,
   Maximize2,
-  Layers
+  Layers,
+  Link as LinkIcon
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, addDoc, writeBatch, increment } from 'firebase/firestore';
@@ -71,6 +72,7 @@ import {
   formatVES
 } from '../utils/textUtils';
 import { slugify, getProductSlug, findProductBySlugOrId, findCategoryBySlug } from '../utils/slugHelper';
+import { encodeSharedCart, decodeSharedCart, hydrateSharedCart, parseQueryCart } from '../utils/sharedCartHelper';
 import { StoreCategoriesModal } from './StoreCategoriesModal';
 import { StoreTextEditorModal, DEFAULT_STORE_TEXTS } from './StoreTextEditorModal';
 import { EditableStoreText } from './EditableStoreText';
@@ -791,6 +793,70 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
   const [isUploadingReceipt, setIsUploadingReceipt] = useState<boolean>(false);
   const [copiedBankField, setCopiedBankField] = useState<string | null>(null);
   const [isOrderSummaryExpanded, setIsOrderSummaryExpanded] = useState<boolean>(false);
+  const [copiedSharedCartLink, setCopiedSharedCartLink] = useState<boolean>(false);
+  const [isSharePopoverOpen, setIsSharePopoverOpen] = useState<boolean>(false);
+  const sharePopoverRef = useRef<HTMLDivElement | null>(null);
+  const [sharedCartToast, setSharedCartToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+  const sharedCartToastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cerrar el popover de compartir si se hace clic afuera
+  useEffect(() => {
+    if (!isSharePopoverOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sharePopoverRef.current && !sharePopoverRef.current.contains(e.target as Node)) {
+        setIsSharePopoverOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSharePopoverOpen]);
+
+  const triggerSharedCartToast = (message: string, type: 'success' | 'info' = 'success') => {
+    setSharedCartToast({ message, type });
+    if (sharedCartToastTimeoutRef.current) {
+      clearTimeout(sharedCartToastTimeoutRef.current);
+    }
+    sharedCartToastTimeoutRef.current = setTimeout(() => {
+      setSharedCartToast(null);
+    }, 4500);
+  };
+
+  const handleCopySharedCartLink = async (deliveryMethod: 'envio' | 'retiro' = 'envio') => {
+    const activeItems = cart.filter(it => it.quantity > 0);
+    if (activeItems.length === 0) return;
+
+    try {
+      setMetodoEntrega(deliveryMethod);
+      const encoded = encodeSharedCart(activeItems, deliveryMethod);
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://www.loquelosbikersquieren.com';
+      const shareUrl = `${origin}/?shared_cart=${encoded}&delivery=${deliveryMethod}`;
+
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = shareUrl;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        textArea.remove();
+      }
+
+      setCopiedSharedCartLink(true);
+      setTimeout(() => setCopiedSharedCartLink(false), 2500);
+      setIsSharePopoverOpen(false);
+
+      const toastMessage = deliveryMethod === 'envio'
+        ? "¡Enlace copiado (Envío Nacional)!"
+        : "¡Enlace copiado (Retiro en Tienda)!";
+
+      triggerSharedCartToast(toastMessage, "success");
+    } catch (err) {
+      console.error("Error copying shared cart link:", err);
+    }
+  };
 
   // Configuración de Métodos de Pago editables (Pago Móvil, Transferencia, Zinli, USDT, etc.)
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(() => {
@@ -2195,6 +2261,64 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [quickViewProduct, sourceProducts, categories, catalogItems]);
+
+  // Detección y Carga de Carrito Compartido / Enlace de Pago Directo (?shared_cart=... o ?items=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const sharedCartParam = params.get('shared_cart') || params.get('cart');
+      const itemsParam = params.get('items');
+      const deliveryParam = params.get('delivery');
+
+      if (!sharedCartParam && !itemsParam) return;
+
+      let hydrated: CartItem[] = [];
+      let delivery: 'envio' | 'retiro' = 'envio';
+
+      if (sharedCartParam) {
+        const decoded = decodeSharedCart(sharedCartParam);
+        if (decoded && decoded.items.length > 0) {
+          delivery = (deliveryParam as 'envio' | 'retiro') || decoded.delivery || 'envio';
+          hydrated = hydrateSharedCart(decoded, sourceProducts);
+        }
+      } else if (itemsParam) {
+        const parsed = parseQueryCart(itemsParam, deliveryParam, sourceProducts);
+        if (parsed && parsed.items.length > 0) {
+          delivery = parsed.delivery;
+          hydrated = parsed.items;
+        }
+      }
+
+      if (hydrated.length > 0) {
+        hasCheckedInitialUrlRef.current = true;
+        setCart(hydrated);
+        try {
+          localStorage.setItem('biker_store_cart', JSON.stringify(hydrated));
+        } catch {}
+
+        setMetodoEntrega(delivery);
+        setCheckoutStep(1);
+        if (delivery === 'retiro') {
+          const preferred = availablePaymentMethods.find(m => m.nombre.toLowerCase().includes('pago móvil') || m.nombre.toLowerCase().includes('pago movil'));
+          setMetodoPago(preferred ? preferred.nombre : 'Pago Móvil');
+        }
+
+        setIsCartOpen(false);
+        setIsCheckoutOpen(true);
+        setIsOrderSummaryExpanded(true);
+
+        triggerSharedCartToast("🛒 ¡Carrito recibido con éxito! Revisa tus productos y completa tu pedido.", "success");
+
+        try {
+          const cleanUrl = window.location.pathname + (window.location.hash || '');
+          window.history.replaceState({}, document.title, cleanUrl);
+        } catch {}
+      }
+    } catch (err) {
+      console.warn("Error hydrating shared cart from URL:", err);
+    }
+  }, [sourceProducts, availablePaymentMethods]);
 
   // Deep linking: Carga inicial directa de la página (/producto/[slug], /categoria/[slug] o ?p=ID)
   useEffect(() => {
@@ -3896,15 +4020,60 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setIsCartOpen(false)}
-                className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-[#000000] hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
-                title="Cerrar carrito"
-                aria-label="Cerrar carrito"
-              >
-                <X size={18} strokeWidth={2.5} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {cart.length > 0 && (
+                  <div className="relative" ref={sharePopoverRef}>
+                    <button
+                      type="button"
+                      onClick={() => setIsSharePopoverOpen(!isSharePopoverOpen)}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0 ${
+                        isSharePopoverOpen
+                          ? 'bg-neutral-900 text-white'
+                          : 'bg-gray-100 hover:bg-neutral-900 hover:text-white text-gray-700'
+                      }`}
+                      title="Compartir enlace directo del carrito"
+                      aria-label="Compartir carrito"
+                    >
+                      <Share2 size={16} />
+                    </button>
+
+                    {/* Popover / Menú desplegable */}
+                    {isSharePopoverOpen && (
+                      <div className="absolute right-0 top-full mt-2 bg-neutral-900 border border-neutral-700 shadow-xl rounded-xl p-2 z-50 min-w-[210px] space-y-1 animate-scale-up">
+                        <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-800 mb-1">
+                          Copiar enlace
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopySharedCartLink('envio')}
+                          className="w-full text-left px-2.5 py-2 text-xs font-medium text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <span className="text-sm">🚚</span>
+                          <span>Enlace para Envío Nacional</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopySharedCartLink('retiro')}
+                          className="w-full text-left px-2.5 py-2 text-xs font-medium text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <span className="text-sm">🏬</span>
+                          <span>Enlace para Retiro en Tienda</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsCartOpen(false)}
+                  className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-[#000000] hover:text-white text-gray-700 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0"
+                  title="Cerrar carrito"
+                  aria-label="Cerrar carrito"
+                >
+                  <X size={18} strokeWidth={2.5} />
+                </button>
+              </div>
             </div>
 
             {/* List of items */}
@@ -4096,28 +4265,37 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <div className="p-2.5 sm:p-4 border-b border-gray-200 bg-gray-50 space-y-1.5 sm:space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl sm:rounded-2xl bg-[#000000] text-white flex items-center justify-center font-black shrink-0 shadow-xs">
-                    {checkoutStep === 0 ? (
-                      metodoEntrega === 'retiro' ? <Store size={15} /> : <Truck size={15} />
-                    ) : checkoutStep === 1 ? (
-                      <Truck size={15} />
-                    ) : (
-                      <CreditCard size={15} />
-                    )}
-                  </div>
+                  {checkoutStep > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOrderFormError(null);
+                        setCheckoutStep((prev) => Math.max(0, prev - 1) as 0 | 1 | 2);
+                      }}
+                      className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl sm:rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-800 flex items-center justify-center font-bold shrink-0 shadow-2xs cursor-pointer transition-all active:scale-90"
+                      title="Regresar al paso anterior"
+                      aria-label="Regresar al paso anterior"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                  ) : (
+                    <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl sm:rounded-2xl bg-[#000000] text-white flex items-center justify-center font-black shrink-0 shadow-xs">
+                      {metodoEntrega === 'retiro' ? <Store size={15} /> : <Truck size={15} />}
+                    </div>
+                  )}
                   <div>
                     <h3 className="font-medium text-sm sm:text-lg text-[#111111] leading-none">
                       {checkoutStep === 0
                         ? "Método de entrega"
                         : checkoutStep === 1
-                        ? (getText('checkoutModalTitle') || "Datos de envío")
-                        : (metodoEntrega === 'retiro' ? "Retiro en tienda" : (getText('checkoutModalTitle') || "Finalizar pedido"))}
+                        ? (metodoEntrega === 'retiro' ? "Datos de quien retira" : (getText('checkoutModalTitle') || "Datos de envío"))
+                        : "Método de pago"}
                     </h3>
                     <p className="text-[11px] sm:text-xs text-gray-500 font-normal mt-0.5 leading-none">
                       {checkoutStep === 0
                         ? "Elige la forma de entrega para continuar"
                         : checkoutStep === 1
-                        ? (getText('checkoutModalSubtitle') || "Información para encomienda nacional")
+                        ? (metodoEntrega === 'retiro' ? "Indica tus datos para apartar tu producto en Mérida" : (getText('checkoutModalSubtitle') || "Información para encomienda nacional"))
                         : (metodoEntrega === 'retiro' ? "Paga y retira en Moto Cristo (Mérida)" : "Selecciona tu método de pago")}
                     </p>
                   </div>
@@ -4148,7 +4326,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                 </div>
               </div>
 
-              {/* Barra de Ruta (Pasos Adaptativos) */}
+              {/* Barra de Ruta (3 Pasos Claros) */}
               <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg sm:rounded-xl py-1 px-2.5 sm:p-2 sm:px-3 text-xs font-medium shadow-xs">
                 {/* 1. Entrega */}
                 <button
@@ -4175,38 +4353,36 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   }`} />
                 </div>
 
-                {/* 2. Envío (solo si metodoEntrega === 'envio') */}
-                {metodoEntrega === 'envio' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (checkoutStep >= 1) {
-                          setOrderFormError(null);
-                          setCheckoutStep(1);
-                        }
-                      }}
-                      className={`flex items-center gap-1.5 ${
-                        checkoutStep >= 1 ? 'cursor-pointer' : 'cursor-default'
-                      } transition-colors ${
-                        checkoutStep === 1 ? 'text-[#111111] font-semibold' : (checkoutStep > 1 ? 'text-gray-600 hover:text-black font-normal' : 'text-gray-400')
-                      }`}
-                    >
-                      <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium ${
-                        checkoutStep > 1 ? 'bg-[#000000] text-white' : (checkoutStep === 1 ? 'bg-[#000000] text-white' : 'bg-gray-200 text-gray-600')
-                      }`}>
-                        {checkoutStep > 1 ? '✓' : '2'}
-                      </span>
-                      <span className="text-[11px] sm:text-xs font-medium">2. Envío</span>
-                    </button>
+                {/* 2. Datos de Retiro / Envío */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (checkoutStep >= 1) {
+                      setOrderFormError(null);
+                      setCheckoutStep(1);
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 ${
+                    checkoutStep >= 1 ? 'cursor-pointer' : 'cursor-default'
+                  } transition-colors ${
+                    checkoutStep === 1 ? 'text-[#111111] font-semibold' : (checkoutStep > 1 ? 'text-gray-600 hover:text-black font-normal' : 'text-gray-400')
+                  }`}
+                >
+                  <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium ${
+                    checkoutStep > 1 ? 'bg-[#000000] text-white' : (checkoutStep === 1 ? 'bg-[#000000] text-white' : 'bg-gray-200 text-gray-600')
+                  }`}>
+                    {checkoutStep > 1 ? '✓' : '2'}
+                  </span>
+                  <span className="text-[11px] sm:text-xs font-medium">
+                    {metodoEntrega === 'retiro' ? '2. Datos de retiro' : '2. Envío'}
+                  </span>
+                </button>
 
-                    <div className="flex-1 mx-2 sm:mx-3 h-0.5 bg-gray-200 relative">
-                      <div className={`h-full bg-[#000000] transition-all duration-300 ${
-                        checkoutStep === 2 ? 'w-full' : 'w-0'
-                      }`} />
-                    </div>
-                  </>
-                )}
+                <div className="flex-1 mx-2 sm:mx-3 h-0.5 bg-gray-200 relative">
+                  <div className={`h-full bg-[#000000] transition-all duration-300 ${
+                    checkoutStep === 2 ? 'w-full' : 'w-0'
+                  }`} />
+                </div>
 
                 {/* 3. Pago */}
                 <div className={`flex items-center gap-1.5 ${
@@ -4215,10 +4391,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[8.5px] sm:text-[9px] font-medium ${
                     checkoutStep === 2 ? 'bg-[#000000] text-white' : 'bg-gray-200 text-gray-600'
                   }`}>
-                    {metodoEntrega === 'envio' ? '3' : '2'}
+                    3
                   </span>
                   <span className="text-[11px] sm:text-xs font-medium">
-                    {metodoEntrega === 'envio' ? '3. Pago' : '2. Pago'}
+                    3. Pago
                   </span>
                 </div>
               </div>
@@ -4316,27 +4492,76 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                   {/* Resumen sutil */}
                   <div className="pt-2 border-t border-gray-100 space-y-2">
-                    <div className="flex items-center justify-between text-xs text-gray-500 font-normal px-0.5">
+                    <div 
+                      onClick={() => setIsOrderSummaryExpanded(!isOrderSummaryExpanded)}
+                      className="flex items-center justify-between text-xs text-gray-600 font-normal px-2 py-1.5 rounded-lg hover:bg-gray-100/80 cursor-pointer select-none transition-colors border border-transparent hover:border-gray-200"
+                      title="Toca para ver u ocultar los productos en la orden"
+                    >
                       <span className="flex items-center gap-1.5">
                         <ShoppingBag size={13} className="text-gray-400" />
                         <span>{cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto' : 'productos'}</span>
+                        <ChevronDown size={12} className={`text-gray-400 transition-transform duration-200 ${isOrderSummaryExpanded ? 'rotate-180 text-amber-600' : ''}`} />
                       </span>
                       <span className="font-mono">
                         Total: <strong className="text-[#FF5200] font-medium">${cartTotals.totalUSD.toFixed(2)} USD</strong> (≈ Bs. {formatVES(cartTotals.totalBS)})
                       </span>
                     </div>
 
+                    {isOrderSummaryExpanded && (
+                      <div className="p-2.5 rounded-xl border border-gray-200 bg-gray-50/80 space-y-2 animate-fade-in text-xs">
+                        <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+                          {cart.filter((item) => item.quantity > 0).map((item, idx) => {
+                            const imgUrl = formatDirectImageUrl(item.product.variante_imagen_miniatura || item.product.imagen_portada || item.product.imagen_url || item.product.link);
+                            const formattedTitle = formatTitleCase(item.product.nombre);
+                            const itemSubtotalUSD = (item.precio_unitario || item.product.precio_venta_ref || 0) * item.quantity;
+                            const itemSubtotalBS = itemSubtotalUSD * tasaBCV;
+                            return (
+                              <div
+                                key={`checkout-step0-summary-${item.product.id}-${idx}`}
+                                className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-white border border-gray-200/80 shadow-2xs"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-8 h-8 rounded-md bg-white border border-gray-200 overflow-hidden shrink-0">
+                                    {imgUrl ? (
+                                      <img src={imgUrl} alt={item.product.nombre} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-xs">🏍️</div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-[#111111] text-[11px] truncate leading-tight">
+                                      <span className="text-amber-600 font-semibold">{item.quantity}x</span> {formattedTitle}
+                                    </p>
+                                    {item.product.variante_nombre && (
+                                      <span className="text-[10px] text-gray-500 block truncate">
+                                        Opción: {formatTitleCase(item.product.variante_nombre)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0 font-mono text-[11px]">
+                                  <span className="font-medium text-[#111111] block">
+                                    ${itemSubtotalUSD.toFixed(2)} USD
+                                  </span>
+                                  <span className="text-[9.5px] text-gray-400 block">
+                                    Bs. {formatVES(itemSubtotalBS)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => {
                         setOrderFormError(null);
-                        if (metodoEntrega === 'envio') {
-                          setCheckoutStep(1);
-                        } else {
-                          // Retiro en tienda: SALTA el Paso 1 y va directo al Paso 2 con método por defecto en "Pago Móvil"
-                          setCheckoutStep(2);
+                        setCheckoutStep(1);
+                        if (metodoEntrega === 'retiro') {
                           const preferred = availablePaymentMethods.find(m => m.nombre.toLowerCase().includes('pago móvil') || m.nombre.toLowerCase().includes('pago movil'));
-                          setMetodoPago(preferred ? preferred.nombre : 'Pago Móvil');
+                          if (preferred) setMetodoPago(preferred.nombre);
                         }
                       }}
                       className="w-full py-3.5 bg-black hover:bg-neutral-800 text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-98 transition-all"
@@ -4353,134 +4578,244 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               {/* ========================================================= */}
               {checkoutStep === 1 && (
                 <div className="space-y-4 animate-fade-in">
-                  <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
-                    <User size={15} className="text-[#FF5722]" />
-                    <h4 className="text-sm font-medium text-[#111111]">
-                      Información personal y encomienda
-                    </h4>
-                  </div>
+                  {metodoEntrega === 'retiro' ? (
+                    <>
+                      {/* Cabecera para Retiro en tienda */}
+                      <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                        <User size={15} className="text-[#FF5200]" />
+                        <h4 className="text-sm font-medium text-[#111111]">
+                          Datos de quien retira en tienda
+                        </h4>
+                      </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {/* 1. NOMBRE */}
-                    <div className="space-y-1">
-                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
-                        <span>1. Nombre completo *</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={clienteNombre}
-                        onChange={(e) => setClienteNombre(e.target.value)}
-                        placeholder="Ej: Carlos Rodriguez"
-                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400"
-                      />
-                    </div>
+                      {/* 2 Casillas principales: Nombre, Apellido y Teléfono */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {/* 1. NOMBRE Y APELLIDO */}
+                        <div className="space-y-1">
+                          <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
+                            <span>1. Nombre y apellido de quien retira *</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={clienteNombre}
+                            onChange={(e) => setClienteNombre(e.target.value)}
+                            placeholder="Ej: Carlos Rodriguez"
+                            className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400"
+                          />
+                        </div>
 
-                    {/* 2. NÚMERO DE CÉDULA */}
-                    <div className="space-y-1">
-                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
-                        <span>2. Número de cédula (V / E) *</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={clienteCedula}
-                        onChange={(e) => setClienteCedula(e.target.value)}
-                        placeholder="Ej: V-19.456.789"
-                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono"
-                      />
-                    </div>
+                        {/* 2. TELÉFONO / WHATSAPP */}
+                        <div className="space-y-1">
+                          <label className="text-xs font-normal text-gray-700 flex items-center gap-1.5">
+                            <WhatsAppVectorIcon size={14} className="text-[#25D366] fill-current shrink-0" />
+                            <span>2. Teléfono o WhatsApp de contacto *</span>
+                          </label>
+                          <input
+                            type="tel"
+                            required
+                            value={clienteTelefono}
+                            onChange={(e) => setClienteTelefono(e.target.value)}
+                            placeholder="Ej: 0412-1234567"
+                            className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono"
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
+                        <User size={15} className="text-[#FF5722]" />
+                        <h4 className="text-sm font-medium text-[#111111]">
+                          Información personal y encomienda
+                        </h4>
+                      </div>
 
-                    {/* 3. TELÉFONO */}
-                    <div className="space-y-1">
-                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1.5">
-                        <WhatsAppVectorIcon size={14} className="text-[#25D366] fill-current shrink-0" />
-                        <span>3. Teléfono / WhatsApp *</span>
-                      </label>
-                      <input
-                        type="tel"
-                        required
-                        value={clienteTelefono}
-                        onChange={(e) => setClienteTelefono(e.target.value)}
-                        placeholder="Ej: 0412-1234567"
-                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono"
-                      />
-                    </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {/* 1. NOMBRE */}
+                        <div className="space-y-1">
+                          <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
+                            <span>1. Nombre completo *</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={clienteNombre}
+                            onChange={(e) => setClienteNombre(e.target.value)}
+                            placeholder="Ej: Carlos Rodriguez"
+                            className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400"
+                          />
+                        </div>
 
-                    {/* AGENCIA DE ENVÍO SELECTOR */}
-                    <div className="space-y-1">
-                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
-                        <span>Empresa de encomiendas</span>
-                      </label>
-                      <select
-                        value={agenciaSeleccionada}
-                        onChange={(e) => setAgenciaSeleccionada(e.target.value as any)}
-                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none cursor-pointer"
-                      >
-                        <option value="MRW">MRW</option>
-                        <option value="Zoom">Zoom</option>
-                        <option value="Tealca">Tealca</option>
-                        <option value="Domesa">Domesa</option>
-                        <option value="Otra">Otra agencia / entrega local</option>
-                      </select>
-                    </div>
+                        {/* 2. NÚMERO DE CÉDULA */}
+                        <div className="space-y-1">
+                          <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
+                            <span>2. Número de cédula (V / E) *</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={clienteCedula}
+                            onChange={(e) => setClienteCedula(e.target.value)}
+                            placeholder="Ej: V-19.456.789"
+                            className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono"
+                          />
+                        </div>
 
-                    {/* 4. DIRECCIÓN DE LA AGENCIA DE ENVÍO */}
-                    <div className="space-y-1 sm:col-span-2">
-                      <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
-                        <MapPin size={11} className="text-[#FF5722]" />
-                        <span>4. Dirección de la agencia de envío *</span>
-                      </label>
-                      <textarea
-                        required
-                        rows={2}
-                        value={direccionAgencia}
-                        onChange={(e) => setDireccionAgencia(e.target.value)}
-                        placeholder="Ej: Agencia MRW San Cristóbal Centro, Calle 5 con Carrera 8, Estado Táchira (Código: 1234)"
-                        className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400"
-                      />
-                    </div>
-                  </div>
+                        {/* 3. TELÉFONO */}
+                        <div className="space-y-1">
+                          <label className="text-xs font-normal text-gray-700 flex items-center gap-1.5">
+                            <WhatsAppVectorIcon size={14} className="text-[#25D366] fill-current shrink-0" />
+                            <span>3. Teléfono / WhatsApp *</span>
+                          </label>
+                          <input
+                            type="tel"
+                            required
+                            value={clienteTelefono}
+                            onChange={(e) => setClienteTelefono(e.target.value)}
+                            placeholder="Ej: 0412-1234567"
+                            className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono"
+                          />
+                        </div>
 
-                  {/* Resumen sutil al final del formulario */}
+                        {/* AGENCIA DE ENVÍO SELECTOR */}
+                        <div className="space-y-1">
+                          <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
+                            <span>Empresa de encomiendas</span>
+                          </label>
+                          <select
+                            value={agenciaSeleccionada}
+                            onChange={(e) => setAgenciaSeleccionada(e.target.value as any)}
+                            className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none cursor-pointer"
+                          >
+                            <option value="MRW">MRW</option>
+                            <option value="Zoom">Zoom</option>
+                            <option value="Tealca">Tealca</option>
+                            <option value="Domesa">Domesa</option>
+                            <option value="Otra">Otra agencia / entrega local</option>
+                          </select>
+                        </div>
+
+                        {/* 4. DIRECCIÓN DE LA AGENCIA DE ENVÍO */}
+                        <div className="space-y-1 sm:col-span-2">
+                          <label className="text-xs font-normal text-gray-700 flex items-center gap-1">
+                            <MapPin size={11} className="text-[#FF5722]" />
+                            <span>4. Dirección de la agencia de envío *</span>
+                          </label>
+                          <textarea
+                            required
+                            rows={2}
+                            value={direccionAgencia}
+                            onChange={(e) => setDireccionAgencia(e.target.value)}
+                            placeholder="Ej: Agencia MRW San Cristóbal Centro, Calle 5 con Carrera 8, Estado Táchira (Código: 1234)"
+                            className="w-full bg-white border border-gray-300 focus:border-black focus:ring-1 focus:ring-black p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400"
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Resumen sutil al final del formulario con acordeón interactivo */}
                   <div className="pt-2 border-t border-gray-100 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-gray-500 font-normal px-1">
-                      <span className="flex items-center gap-1.5">
+                    <div 
+                      onClick={() => setIsOrderSummaryExpanded(!isOrderSummaryExpanded)}
+                      className="flex items-center justify-between text-[11px] text-gray-600 font-normal px-2 py-1.5 rounded-lg hover:bg-gray-100/80 cursor-pointer select-none transition-colors border border-transparent hover:border-gray-200"
+                      title="Toca para ver u ocultar los productos en la orden"
+                    >
+                      <span className="flex items-center gap-1.5 font-medium text-gray-700">
                         <ShoppingBag size={13} className="text-amber-500" />
                         <span>{cartTotals.totalUnits} {cartTotals.totalUnits === 1 ? 'producto en orden' : 'productos en orden'}</span>
+                        <ChevronDown size={12} className={`text-gray-400 transition-transform duration-200 ${isOrderSummaryExpanded ? 'rotate-180 text-amber-600' : ''}`} />
                       </span>
                       <span className="font-mono text-right">
                         Total: <strong className="text-[#FF5200] font-semibold">${cartTotals.totalUSD.toFixed(2)} USD</strong> <span className="text-gray-500 font-normal text-[10px]">(≈ Bs. {formatVES(cartTotals.totalBS)})</span>
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOrderFormError(null);
-                        if (!clienteNombre.trim()) {
-                          setOrderFormError("Por favor ingresa tu Nombre y Apellido.");
-                          return;
-                        }
-                        if (!clienteCedula.trim()) {
-                          setOrderFormError("Por favor ingresa tu Número de Cédula.");
-                          return;
-                        }
-                        if (!clienteTelefono.trim()) {
-                          setOrderFormError("Por favor ingresa tu Número de Teléfono o WhatsApp.");
-                          return;
-                        }
-                        if (!direccionAgencia.trim()) {
-                          setOrderFormError("Por favor ingresa la Dirección de la agencia de envío.");
-                          return;
-                        }
-                        setCheckoutStep(2);
-                      }}
-                      className="w-full py-3.5 bg-[#000000] hover:bg-neutral-800 text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98 transition-all"
-                    >
-                      <span>Siguiente: Método de pago</span>
-                      <ArrowRight size={16} className="text-white" />
-                    </button>
+                    {/* Acordeón desplegable de productos */}
+                    {isOrderSummaryExpanded && (
+                      <div className="p-2.5 rounded-xl border border-gray-200 bg-gray-50/80 space-y-2 animate-fade-in text-xs">
+                        <div className="max-h-36 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+                          {cart.filter((item) => item.quantity > 0).map((item, idx) => {
+                            const imgUrl = formatDirectImageUrl(item.product.variante_imagen_miniatura || item.product.imagen_portada || item.product.imagen_url || item.product.link);
+                            const formattedTitle = formatTitleCase(item.product.nombre);
+                            const itemSubtotalUSD = (item.precio_unitario || item.product.precio_venta_ref || 0) * item.quantity;
+                            const itemSubtotalBS = itemSubtotalUSD * tasaBCV;
+                            return (
+                              <div
+                                key={`checkout-step1-summary-${item.product.id}-${idx}`}
+                                className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-white border border-gray-200/80 shadow-2xs"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-8 h-8 rounded-md bg-white border border-gray-200 overflow-hidden shrink-0">
+                                    {imgUrl ? (
+                                      <img src={imgUrl} alt={item.product.nombre} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-xs">🏍️</div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-[#111111] text-[11px] truncate leading-tight">
+                                      <span className="text-amber-600 font-semibold">{item.quantity}x</span> {formattedTitle}
+                                    </p>
+                                    {item.product.variante_nombre && (
+                                      <span className="text-[10px] text-gray-500 block truncate">
+                                        Opción: {formatTitleCase(item.product.variante_nombre)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0 font-mono text-[11px]">
+                                  <span className="font-medium text-[#111111] block">
+                                    ${itemSubtotalUSD.toFixed(2)} USD
+                                  </span>
+                                  <span className="text-[9.5px] text-gray-400 block">
+                                    Bs. {formatVES(itemSubtotalBS)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrderFormError(null);
+                          if (!clienteNombre.trim()) {
+                            setOrderFormError(
+                              metodoEntrega === 'retiro'
+                                ? "Por favor ingresa el Nombre y Apellido de quien retira."
+                                : "Por favor ingresa tu Nombre y Apellido."
+                            );
+                            return;
+                          }
+                          if (metodoEntrega === 'envio' && !clienteCedula.trim()) {
+                            setOrderFormError("Por favor ingresa tu Número de Cédula.");
+                            return;
+                          }
+                          if (!clienteTelefono.trim()) {
+                            setOrderFormError(
+                              metodoEntrega === 'retiro'
+                                ? "Por favor ingresa tu Número de Teléfono o WhatsApp para apartar tu producto."
+                                : "Por favor ingresa tu Número de Teléfono o WhatsApp."
+                            );
+                            return;
+                          }
+                          if (metodoEntrega === 'envio' && !direccionAgencia.trim()) {
+                            setOrderFormError("Por favor ingresa la Dirección de la agencia de envío.");
+                            return;
+                          }
+                          setCheckoutStep(2);
+                        }}
+                        className="w-full py-3.5 bg-[#000000] hover:bg-neutral-800 text-white font-medium text-xs sm:text-sm rounded-lg flex items-center justify-center shadow-md cursor-pointer active:scale-98 transition-all"
+                      >
+                        <span>Siguiente: Método de pago</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -4760,7 +5095,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                           <span className="text-gray-300">•</span>
                           <span className="truncate">
                             {metodoEntrega === 'retiro' ? (
-                              <span>Entrega: <strong className="text-[#111111] font-medium">Retiro en tienda (Mérida)</strong></span>
+                              <span>Retiro: <strong className="text-[#111111] font-medium">{clienteNombre || 'Cliente'}</strong> (Moto Cristo, Mérida)</span>
                             ) : (
                               <span>Envío: <strong className="text-[#111111] font-medium">{clienteNombre || 'Cliente'}</strong> ({agenciaSeleccionada})</span>
                             )}
@@ -4768,22 +5103,10 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCheckoutStep(metodoEntrega === 'retiro' ? 0 : 1);
-                          }}
-                          className="text-[10px] text-amber-700 hover:text-amber-800 underline font-medium cursor-pointer"
-                        >
-                          Modificar
-                        </button>
-                        <div className={`w-5 h-5 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 transition-transform duration-200 ${
-                          isOrderSummaryExpanded ? 'rotate-180 text-amber-600' : ''
-                        }`}>
-                          <ChevronDown size={12} />
-                        </div>
+                      <div className={`w-5 h-5 rounded-md bg-gray-100 flex items-center justify-center text-gray-600 transition-transform duration-200 shrink-0 ${
+                        isOrderSummaryExpanded ? 'rotate-180 text-amber-600' : ''
+                      }`}>
+                        <ChevronDown size={12} />
                       </div>
                     </div>
 
@@ -4869,65 +5192,55 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   </div>
 
                   {/* ========================================================= */}
-                  {/* CASILLAS OBLIGATORIAS: NOMBRE Y TELÉFONO PARA RETIRO       */}
+                  {/* RESUMEN DE QUIEN RETIRA Y PUNTO DE RETIRO (PASO FINAL)    */}
                   {/* ========================================================= */}
                   {metodoEntrega === 'retiro' && (
-                    <div className="bg-white border border-gray-150 rounded-xl p-3.5 sm:p-4 space-y-2.5 shadow-xs">
-                      <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
-                        <User size={13} className="text-[#FF5200]" />
-                        <div>
-                          <h5 className="text-xs font-semibold text-[#111111]">
-                            {metodoPago.toLowerCase() === 'pago en tienda'
-                              ? '¿A nombre de quién apartamos el pedido?'
-                              : 'Datos de quien retira en tienda'}
-                          </h5>
-                          <p className="text-[11px] text-gray-500 font-normal">
-                            {metodoPago.toLowerCase() === 'pago en tienda'
-                              ? 'Ingresa tu nombre y teléfono para saber a quién apartarle el producto'
-                              : 'Ingresa estos 2 datos para confirmar tu pedido y coordinar el retiro'}
-                          </p>
+                    <div className="bg-white border border-gray-200 rounded-xl p-3.5 space-y-2 text-xs shadow-2xs">
+                      <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0 border border-amber-200/60">
+                            <User size={15} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-900 truncate leading-tight">
+                              Retira: {clienteNombre || 'Cliente'}
+                            </p>
+                            <p className="text-[11px] text-gray-500 font-mono truncate">
+                              Tel: {clienteTelefono || 'Sin teléfono'}
+                            </p>
+                          </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => setCheckoutStep(1)}
+                          className="text-[11px] text-amber-700 hover:text-amber-900 font-medium underline shrink-0 cursor-pointer"
+                        >
+                          Modificar
+                        </button>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-0.5">
-                        <div className="space-y-1 text-left">
-                          <label className="text-xs font-medium text-gray-700 flex items-center gap-1">
-                            <span>1. Nombre y Apellido *</span>
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            value={clienteNombre}
-                            onChange={(e) => {
-                              setClienteNombre(e.target.value);
-                              if (orderFormError) setOrderFormError(null);
-                            }}
-                            placeholder="Ej: Carlos Rodriguez"
-                            className={`w-full bg-white border p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 ${
-                              orderFormError && !clienteNombre.trim() ? 'border-rose-500 ring-1 ring-rose-500' : 'border-gray-300 focus:border-black focus:ring-1 focus:ring-black'
-                            }`}
-                          />
+                      {/* Información secundaria de ubicación de retiro */}
+                      <div className="flex items-start justify-between gap-2 pt-0.5 text-gray-600">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <Store size={14} className="text-amber-700 shrink-0 mt-0.5" />
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-800 text-[11px]">
+                              Punto de retiro: Moto Cristo (Mérida)
+                            </p>
+                            <p className="text-[10.5px] text-gray-500 leading-tight">
+                              Calle Kennedy, entre Campo de Oro y Santa Mónica.
+                            </p>
+                          </div>
                         </div>
-
-                        <div className="space-y-1 text-left">
-                          <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
-                            <WhatsAppVectorIcon size={13} className="text-[#25D366] fill-current shrink-0" />
-                            <span>2. Teléfono / WhatsApp *</span>
-                          </label>
-                          <input
-                            type="tel"
-                            required
-                            value={clienteTelefono}
-                            onChange={(e) => {
-                              setClienteTelefono(e.target.value);
-                              if (orderFormError) setOrderFormError(null);
-                            }}
-                            placeholder="Ej: 0412-1234567"
-                            className={`w-full bg-white border p-2.5 rounded-lg text-[#111111] text-xs font-normal outline-none transition-all placeholder:text-gray-400 font-mono ${
-                              orderFormError && !clienteTelefono.trim() ? 'border-rose-500 ring-1 ring-rose-500' : 'border-gray-300 focus:border-black focus:ring-1 focus:ring-black'
-                            }`}
-                          />
-                        </div>
+                        <a
+                          href="https://share.google/YdVNZ3c9PRzGRBsB4"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[10.5px] text-amber-800 hover:text-amber-950 underline font-medium shrink-0 pt-0.5"
+                        >
+                          <span>Ver mapa</span>
+                          <ExternalLink size={10} />
+                        </a>
                       </div>
                     </div>
                   )}
@@ -4936,13 +5249,13 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                   {/* BOTÓN FINAL: APARTAR POR WHATSAPP O CONFIRMAR PAGO       */}
                   {/* ========================================================= */}
                   {metodoPago.toLowerCase() === 'pago en tienda' ? (
-                    <div className="pt-1">
+                    <div className="pt-1 space-y-2">
                       <button
                         type="button"
                         onClick={(e) => {
                           if (!clienteNombre.trim() || !clienteTelefono.trim()) {
-                            setOrderFormError("Por favor ingresa tu Nombre y Teléfono para saber a quién apartarle el producto.");
-                            setIsPickupPromptOpen(true);
+                            setOrderFormError("Por favor ingresa tu Nombre y Teléfono en el paso anterior para apartar el producto.");
+                            setCheckoutStep(1);
                             return;
                           }
                           handleSubmitOrder(e);
@@ -6039,6 +6352,32 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
             <Check size={11} strokeWidth={3} />
           </div>
           <span className="font-medium text-white tracking-tight">Enlace copiado</span>
+        </aside>
+      )}
+
+      {/* Toast flotante de Carrito Compartido / Link de Pago Directo */}
+      {sharedCartToast && (
+        <aside
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 z-[100003] max-w-md w-[92%] sm:w-auto bg-[#111111] text-white text-xs py-2.5 px-4 rounded-full shadow-2xl flex items-center justify-between gap-3 animate-scale-up border border-emerald-500/50 backdrop-blur-md"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <Check size={12} strokeWidth={3} />
+            </div>
+            <span className="font-medium text-neutral-100 text-xs leading-snug">
+              {sharedCartToast.message}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSharedCartToast(null)}
+            className="text-neutral-400 hover:text-white p-1 ml-1 cursor-pointer shrink-0"
+            title="Cerrar notificación"
+          >
+            <X size={13} />
+          </button>
         </aside>
       )}
     </div>
