@@ -408,8 +408,66 @@ async function injectMetadata(htmlTemplate: string, req: Request): Promise<strin
   let canonicalUrl = `${baseUrl}${req.originalUrl.split('?')[0]}`;
   let structuredDataJson = "";
 
+  // 0. Ruta de Carrito Compartido: ?c=ID1:QTY,ID2:QTY (o ?shared_cart=...)
+  const cParam = String(req.query.c || req.query.items || req.query.shared_cart || '').trim();
+  if (cParam) {
+    const products = await getAllProducts();
+    const parts = cParam.split(',');
+    interface CartPreviewItem {
+      name: string;
+      qty: number;
+      price: number;
+      image: string;
+    }
+    const resolvedItems: CartPreviewItem[] = [];
+
+    for (const part of parts) {
+      const [rawId, rawQty] = part.split(':');
+      if (!rawId) continue;
+      const cleanId = rawId.trim();
+      const qty = Math.max(1, parseInt(rawQty || '1', 10) || 1);
+      const found = findProductBySlugOrId(products, cleanId);
+      if (found) {
+        const rawImage = (
+          found.grupo_imagen_portada ||
+          found.imagen_portada ||
+          found.variante_imagen_hd ||
+          found.imagen_url ||
+          found.link ||
+          ''
+        );
+        const directImg = formatDirectImageUrl(rawImage);
+        resolvedItems.push({
+          name: formatTitleCase(found.grupo_nombre || found.nombre || 'Accesorio'),
+          qty,
+          price: Number(found.precio_venta_ref || found.precio_mayor || 0),
+          image: directImg && directImg.startsWith('http') ? directImg : `${baseUrl}/LOGO.png`
+        });
+      }
+    }
+
+    let summaryText = 'Tus accesorios seleccionados';
+    if (resolvedItems.length > 0) {
+      ogImage = resolvedItems[0].image;
+      if (resolvedItems.length === 1) {
+        const it = resolvedItems[0];
+        summaryText = `${it.name}${it.qty > 1 ? ` (x${it.qty})` : ''}`;
+      } else if (resolvedItems.length === 2) {
+        summaryText = `${resolvedItems[0].name}${resolvedItems[0].qty > 1 ? ` (x${resolvedItems[0].qty})` : ''} + ${resolvedItems[1].name}${resolvedItems[1].qty > 1 ? ` (x${resolvedItems[1].qty})` : ''}`;
+      } else {
+        const firstTwo = resolvedItems.slice(0, 2).map(it => `${it.name}${it.qty > 1 ? ` (x${it.qty})` : ''}`).join(', ');
+        const remaining = resolvedItems.length - 2;
+        summaryText = `${firstTwo} y ${remaining} accesorio${remaining > 1 ? 's' : ''} más`;
+      }
+    }
+
+    ogTitle = "🛒 Tu pedido biker está listo | Lo que los bikers quieren";
+    ogDescription = `Incluye: ${summaryText}. Toca aquí para confirmar tus datos de encomienda y completar el pago.`;
+    canonicalUrl = `${baseUrl}/?c=${encodeURIComponent(cParam)}`;
+  }
+
   // 1. Ruta de Producto: /producto/[slug] o /producto/[id]
-  if (pathParts[0] === 'producto' && pathParts[1]) {
+  else if (pathParts[0] === 'producto' && pathParts[1]) {
     const productParam = pathParts[1];
     const product = await resolveProduct(productParam);
     if (product) {

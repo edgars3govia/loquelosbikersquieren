@@ -274,4 +274,31 @@ export interface PaymentMethodConfig {
   campos: PaymentField[];
 }
 
+export interface ComboItem {
+  id: string;
+  title: string;
+  description?: string;
+  productIds: string[];
+  active: boolean;
+  totalUSD?: number;
+  totalBS?: number;
+  discountPercentage?: number;
+  order?: number;
+  badge?: string;
+  createdAt?: string;
+}
+
+export interface ReviewItem {
+  id: string;
+  imageUrl: string;
+  caption: string;
+  active: boolean;
+  order?: number;
+  badge?: string;
+  rating?: number;
+  date?: string;
+  createdAt?: string;
+}
+
+
 

@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Store inventory product or variant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "sku": { "type": "string" },
+        "precio_venta_ref": { "type": "number" },
+        "stock_disponible": { "type": "number" },
+        "categoria": { "type": "string" },
+        "imagen_url": { "type": "string" }
+      },
+      "required": ["id", "nombre"]
+    },
+    "Combo": {
+      "title": "Combo",
+      "description": "Curated bundle or frequently bought together kit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "productIds": { "type": "array" },
+        "active": { "type": "boolean" },
+        "discountPercentage": { "type": "number" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "productIds", "active"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "WhatsApp delivery proof screenshot or customer testimonial",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "caption": { "type": "string" },
+        "active": { "type": "boolean" },
+        "order": { "type": "number" },
+        "badge": { "type": "string" },
+        "rating": { "type": "number" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "imageUrl", "caption", "active"]
+    },
+    "StoreOrder": {
+      "title": "StoreOrder",
+      "description": "Customer ecommerce order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "numero_pedido": { "type": "string" },
+        "cliente_nombre": { "type": "string" },
+        "cliente_telefono": { "type": "string" },
+        "totalUSD": { "type": "number" },
+        "totalBS": { "type": "number" },
+        "estado": { "type": "string" }
+      },
+      "required": ["id", "numero_pedido", "cliente_nombre", "cliente_telefono"]
+    }
+  },
+  "firestore": {
+    "/productos/{productId}": {
+      "schema": "Product",
+      "description": "Public catalog products and variants"
+    },
+    "/combos/{comboId}": {
+      "schema": "Combo",
+      "description": "Curated kits and frequently bought together product bundles"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Customer reviews and WhatsApp delivery screenshots"
+    },
+    "/pedidos_tienda/{orderId}": {
+      "schema": "StoreOrder",
+      "description": "Orders created by store customers"
+    }
+  }
+}

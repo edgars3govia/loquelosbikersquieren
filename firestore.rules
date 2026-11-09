@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Reglas para catálogo público de productos
+    match /productos/{productId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Reglas para Kits y Combos ("Comprados juntos con frecuencia")
+    match /combos/{comboId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Reglas para Reseñas y Entregas WhatsApp
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Pedidos de clientes
+    match /pedidos_tienda/{orderId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if request.auth != null;
+    }
+
+    // Registros contables / ingresos
+    match /income/{incomeId} {
+      allow read: if request.auth != null;
+      allow create: if true;
+      allow update, delete: if request.auth != null;
+    }
+
+    // Configuración y textos de tienda
+    match /store_settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Verificación de conectividad
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

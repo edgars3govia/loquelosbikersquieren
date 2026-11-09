@@ -72,7 +72,14 @@ import {
   formatVES
 } from '../utils/textUtils';
 import { slugify, getProductSlug, findProductBySlugOrId, findCategoryBySlug } from '../utils/slugHelper';
-import { encodeSharedCart, decodeSharedCart, hydrateSharedCart, parseQueryCart } from '../utils/sharedCartHelper';
+import { 
+  encodeSharedCart, 
+  decodeSharedCart, 
+  hydrateSharedCart, 
+  parseQueryCart, 
+  buildShortSharedCartQuery, 
+  parseShortCartQuery 
+} from '../utils/sharedCartHelper';
 import { StoreCategoriesModal } from './StoreCategoriesModal';
 import { StoreTextEditorModal, DEFAULT_STORE_TEXTS } from './StoreTextEditorModal';
 import { EditableStoreText } from './EditableStoreText';
@@ -81,6 +88,7 @@ import { ProductVariantsModal, isValidGroupId } from './ProductVariantsModal';
 import { DEFAULT_PAYMENT_METHODS } from '../constants/defaultPaymentMethods';
 import { fetchTasaOficialBCV, getCachedTasaBCV, DEFAULT_TASA_FALLBACK } from '../lib/tasaService';
 import { STORE_WHATSAPP_PHONE, STORE_WHATSAPP_DISPLAY, STORE_WHATSAPP_VIP_CHANNEL, getWhatsAppDirectUrl } from '../constants/whatsapp';
+import { FeaturedHomeSections } from './FeaturedHomeSections';
 
 /**
  * Formatea un texto a formato "Title Case" o "Sentence Case" para títulos limpios y minimalistas
@@ -822,15 +830,23 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     }, 4500);
   };
 
-  const handleCopySharedCartLink = async (deliveryMethod: 'envio' | 'retiro' = 'envio') => {
+  const handleCopySharedCartLink = async (deliveryMethod: 'mrw' | 'zoom' | 'tienda' | 'envio' = 'mrw') => {
     const activeItems = cart.filter(it => it.quantity > 0);
     if (activeItems.length === 0) return;
 
     try {
-      setMetodoEntrega(deliveryMethod);
-      const encoded = encodeSharedCart(activeItems, deliveryMethod);
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://www.loquelosbikersquieren.com';
-      const shareUrl = `${origin}/?shared_cart=${encoded}&delivery=${deliveryMethod}`;
+      const isTienda = deliveryMethod === 'tienda';
+      setMetodoEntrega(isTienda ? 'retiro' : 'envio');
+      if (deliveryMethod === 'zoom') {
+        setAgenciaSeleccionada('Zoom');
+      } else if (deliveryMethod === 'mrw' || deliveryMethod === 'envio') {
+        setAgenciaSeleccionada('MRW');
+      }
+
+      // Formato plano ultracompacto: https://www.loquelosbikersquieren.com/?c=ID1:QTY,ID2:QTY&d=TIPO
+      const shortQuery = buildShortSharedCartQuery(activeItems, deliveryMethod);
+      const origin = 'https://www.loquelosbikersquieren.com';
+      const shareUrl = `${origin}/?${shortQuery}`;
 
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(shareUrl);
@@ -849,9 +865,11 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
       setTimeout(() => setCopiedSharedCartLink(false), 2500);
       setIsSharePopoverOpen(false);
 
-      const toastMessage = deliveryMethod === 'envio'
-        ? "¡Enlace copiado (Envío Nacional)!"
-        : "¡Enlace copiado (Retiro en Tienda)!";
+      const toastMessage = isTienda
+        ? "¡Enlace copiado (Retiro en Tienda)!"
+        : deliveryMethod === 'zoom'
+        ? "¡Enlace copiado (Envío Zoom)!"
+        : "¡Enlace copiado (Envío MRW)!";
 
       triggerSharedCartToast(toastMessage, "success");
     } catch (err) {
@@ -2044,6 +2062,42 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     setIsCheckoutOpen(true);
   };
 
+  // Añadir un combo/kit completo al carrito de una sola vez
+  const handleAddComboToCart = (comboProducts: Producto[]) => {
+    if (!comboProducts || comboProducts.length === 0) return;
+
+    setCart((prevCart) => {
+      let updatedCart = [...prevCart];
+      for (const prod of comboProducts) {
+        const unitPrice = prod.precio_venta_ref || prod.precio_mayor || 0;
+        if (unitPrice <= 0) continue;
+
+        const existingIdx = updatedCart.findIndex((it) => it.product.id === prod.id);
+        if (existingIdx >= 0) {
+          const item = updatedCart[existingIdx];
+          const newQty = (item.quantity > 0 ? item.quantity : 0) + 1;
+          updatedCart[existingIdx] = {
+            ...item,
+            quantity: newQty,
+            precio_unitario: unitPrice,
+            subtotal: Number((unitPrice * newQty).toFixed(2)),
+          };
+        } else {
+          updatedCart.push({
+            product: prod,
+            quantity: 1,
+            precio_unitario: unitPrice,
+            subtotal: Number(unitPrice.toFixed(2)),
+          });
+        }
+      }
+      return updatedCart;
+    });
+
+    setIsHeaderVisible(true);
+    setIsCartOpen(true);
+  };
+
   // Update quantity in cart: permite valor 0 sin borrar del DOM para prevención de borrado accidental
   const handleUpdateCartQty = (productId: string, newQty: number) => {
     const safeQty = Math.max(0, newQty);
@@ -2263,28 +2317,42 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     return () => window.removeEventListener('popstate', handlePopState);
   }, [quickViewProduct, sourceProducts, categories, catalogItems]);
 
-  // Detección y Carga de Carrito Compartido / Enlace de Pago Directo (?shared_cart=... o ?items=...)
+  // Detección y Carga de Carrito Compartido / Enlace de Pago Directo (?c=... o legacy ?shared_cart=... o ?items=...)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       const params = new URLSearchParams(window.location.search);
-      const sharedCartParam = params.get('shared_cart') || params.get('cart');
-      const itemsParam = params.get('items');
-      const deliveryParam = params.get('delivery');
+      const shortCartParam = params.get('c');
+      const legacySharedCartParam = params.get('shared_cart') || params.get('cart');
+      const legacyItemsParam = params.get('items');
+      const deliveryParam = (params.get('d') || params.get('delivery') || '').toLowerCase().trim();
 
-      if (!sharedCartParam && !itemsParam) return;
+      if (!shortCartParam && !legacySharedCartParam && !legacyItemsParam) return;
 
       let hydrated: CartItem[] = [];
       let delivery: 'envio' | 'retiro' = 'envio';
+      let selectedAgency: 'MRW' | 'Zoom' = 'MRW';
 
-      if (sharedCartParam) {
-        const decoded = decodeSharedCart(sharedCartParam);
+      // 1. Prioridad: Formato nuevo ultra-compacto (?c=ID1:QTY,ID2:QTY&d=TIPO)
+      if (shortCartParam) {
+        const parsed = parseShortCartQuery(shortCartParam, deliveryParam, sourceProducts);
+        if (parsed && parsed.items.length > 0) {
+          delivery = parsed.delivery;
+          selectedAgency = parsed.agency;
+          hydrated = parsed.items;
+        }
+      } 
+      // 2. Soporte retrocompatible para formato heredado (?shared_cart=...)
+      else if (legacySharedCartParam) {
+        const decoded = decodeSharedCart(legacySharedCartParam);
         if (decoded && decoded.items.length > 0) {
           delivery = (deliveryParam as 'envio' | 'retiro') || decoded.delivery || 'envio';
           hydrated = hydrateSharedCart(decoded, sourceProducts);
         }
-      } else if (itemsParam) {
-        const parsed = parseQueryCart(itemsParam, deliveryParam, sourceProducts);
+      } 
+      // 3. Soporte para formato ?items=...
+      else if (legacyItemsParam) {
+        const parsed = parseQueryCart(legacyItemsParam, deliveryParam, sourceProducts);
         if (parsed && parsed.items.length > 0) {
           delivery = parsed.delivery;
           hydrated = parsed.items;
@@ -2299,17 +2367,28 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         } catch {}
 
         setMetodoEntrega(delivery);
-        setCheckoutStep(1);
         if (delivery === 'retiro') {
-          const preferred = availablePaymentMethods.find(m => m.nombre.toLowerCase().includes('pago móvil') || m.nombre.toLowerCase().includes('pago movil'));
+          const preferred = availablePaymentMethods.find(m => 
+            m.nombre.toLowerCase().includes('pago móvil') || m.nombre.toLowerCase().includes('pago movil')
+          );
           setMetodoPago(preferred ? preferred.nombre : 'Pago Móvil');
+        } else {
+          setAgenciaSeleccionada(selectedAgency);
         }
+
+        // Abre directamente el modal de checkout en el Paso 2 (checkoutStep: 1)
+        // (Paso 2 de envío si es 'mrw'/'zoom' o datos de quien retira si es 'tienda')
+        setCheckoutStep(1);
 
         setIsCartOpen(false);
         setIsCheckoutOpen(true);
         setIsOrderSummaryExpanded(true);
 
-        triggerSharedCartToast("🛒 ¡Carrito recibido con éxito! Revisa tus productos y completa tu pedido.", "success");
+        const toastMsg = delivery === 'retiro'
+          ? "🛒 ¡Carrito recibido! Confirma tus datos para retirar en tienda."
+          : `🛒 ¡Carrito recibido! Confirma tus datos de encomienda (${selectedAgency}).`;
+
+        triggerSharedCartToast(toastMsg, "success");
 
         try {
           const cleanUrl = window.location.pathname + (window.location.hash || '');
@@ -3331,40 +3410,6 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         </header>
       </div>
 
-      {/* ========================================================= */}
-      {/* TIRA DE CONFIANZA ULTRA-MINIMALISTA (TRUST BADGES)        */}
-      {/* ========================================================= */}
-      <div className="bg-white py-2 px-2 sm:px-4">
-        <div className="max-w-[1720px] mx-auto flex items-center justify-center flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500 font-normal">
-          <div className="flex items-center gap-1.5">
-            <ShieldCheck size={14} className="text-gray-400 stroke-[1.8]" />
-            <EditableStoreText
-              textKey="badgeProtected"
-              value={getText('badgeProtected')}
-              isAdmin={isAdmin}
-              onOpenEditor={handleOpenTextEditorFor}
-              as="span"
-              className="text-xs text-gray-500 font-normal"
-            />
-          </div>
-          <span className="text-gray-300 hidden sm:inline">•</span>
-          <div className="flex items-center gap-1.5">
-            <Truck size={14} className="text-gray-400 stroke-[1.8]" />
-            <EditableStoreText
-              textKey="badgeDispatch"
-              value={getText('badgeDispatch') || "Recibe en 24h/48h"}
-              isAdmin={isAdmin}
-              onOpenEditor={handleOpenTextEditorFor}
-              as="span"
-              className="text-xs text-gray-500 font-normal"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* ========================================================= */}
-      {/* STORE CATALOG & FILTERS                                   */}
-      {/* ========================================================= */}
       <main className="max-w-[1720px] mx-auto px-2 sm:px-3 md:px-4 lg:px-5 pt-1 sm:pt-2 pb-6 sm:pb-8 space-y-2.5">
         {/* ACTIVE FILTERS & SORTING ROW (MINIMALISTA, SIN BORDES DIVISORES NI TÍTULO REDUNDANTE) */}
         <div className="flex items-center justify-between flex-wrap gap-2 pb-1">
@@ -4040,25 +4085,33 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                     {/* Popover / Menú desplegable */}
                     {isSharePopoverOpen && (
-                      <div className="absolute right-0 top-full mt-2 bg-neutral-900 border border-neutral-700 shadow-xl rounded-xl p-2 z-50 min-w-[210px] space-y-1 animate-scale-up">
+                      <div className="absolute right-0 top-full mt-2 bg-neutral-900 border border-neutral-700 shadow-xl rounded-xl p-2 z-50 min-w-[220px] space-y-1 animate-scale-up">
                         <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold border-b border-neutral-800 mb-1">
-                          Copiar enlace
+                          Copiar enlace corto
                         </div>
                         <button
                           type="button"
-                          onClick={() => handleCopySharedCartLink('envio')}
+                          onClick={() => handleCopySharedCartLink('mrw')}
                           className="w-full text-left px-2.5 py-2 text-xs font-medium text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
                         >
                           <span className="text-sm">🚚</span>
-                          <span>Enlace para Envío Nacional</span>
+                          <span>Envío Nacional MRW</span>
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleCopySharedCartLink('retiro')}
+                          onClick={() => handleCopySharedCartLink('zoom')}
+                          className="w-full text-left px-2.5 py-2 text-xs font-medium text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <span className="text-sm">📦</span>
+                          <span>Envío Nacional Zoom</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopySharedCartLink('tienda')}
                           className="w-full text-left px-2.5 py-2 text-xs font-medium text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
                         >
                           <span className="text-sm">🏬</span>
-                          <span>Enlace para Retiro en Tienda</span>
+                          <span>Retiro en Tienda Mérida</span>
                         </button>
                       </div>
                     )}
