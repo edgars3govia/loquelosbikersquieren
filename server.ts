@@ -160,29 +160,24 @@ function findProductBySlugOrId(products: any[], param: string): any | undefined 
   });
   if (byComposite) return byComposite;
 
-  // 6. Coincidencia por prefijo / inclusión
-  if (targetSlug.length >= 6) {
-    const byPartial = products.find(p => {
-      const sName = slugify(p.nombre);
-      const sGroup = slugify(p.grupo_nombre);
-      const sProd = slugify(getProductSlug(p));
-      return (
-        (sName && (sName.startsWith(targetSlug) || targetSlug.startsWith(sName))) ||
-        (sGroup && (sGroup.startsWith(targetSlug) || targetSlug.startsWith(sGroup))) ||
-        (sProd && (sProd.startsWith(targetSlug) || targetSlug.startsWith(sProd)))
-      );
-    });
-    if (byPartial) return byPartial;
-  }
+  // 6. Coincidencia por inclusión / substring si el slug o nombre lo contiene
+  const bySubstring = products.find(p => {
+    const sName = slugify(p.nombre);
+    const sGroup = slugify(p.grupo_nombre);
+    const sProd = slugify(getProductSlug(p));
+    const cleanCandidate = `${sGroup} ${sName} ${sProd}`;
+    return cleanCandidate.includes(targetSlug) || (targetKey.length >= 3 && toAlphaNumericKey(cleanCandidate).includes(targetKey));
+  });
+  if (bySubstring) return bySubstring;
 
-  // 7. Búsqueda tolerante por tokens relevantes (ej. ["acompanante", "pato", "psyduck", "metralleta"])
+  // 7. Búsqueda tolerante por tokens relevantes (ej. ["psyduck"] o ["mandaloriano"] o ["acompanante", "pato"])
   const stopWords = new Set(['de', 'la', 'el', 'los', 'las', 'en', 'para', 'con', 'y', 'a', 'del', 'un', 'una', 'por']);
   const tokens = targetSlug
     .split('-')
     .map(t => t.trim())
-    .filter(t => t.length > 2 && !stopWords.has(t));
+    .filter(t => t.length >= 3 && !stopWords.has(t));
 
-  if (tokens.length >= 2) {
+  if (tokens.length >= 1) {
     let bestMatch: any = undefined;
     let maxMatchCount = 0;
 
@@ -195,13 +190,13 @@ function findProductBySlugOrId(products: any[], param: string): any | undefined 
         }
       }
 
-      if (matchCount >= 2 && matchCount > maxMatchCount) {
+      if (matchCount > maxMatchCount) {
         maxMatchCount = matchCount;
         bestMatch = p;
       }
     }
 
-    if (bestMatch && maxMatchCount >= Math.ceil(tokens.length * 0.5)) {
+    if (bestMatch && maxMatchCount > 0) {
       return bestMatch;
     }
   }
@@ -396,8 +391,10 @@ async function resolveCategory(slugParam: string): Promise<string | null> {
 // ============================================================================
 
 async function injectMetadata(htmlTemplate: string, req: Request): Promise<string> {
-  const host = req.get('x-forwarded-host') || req.get('host') || 'www.loquelosbikersquieren.com';
   // WhatsApp y redes sociales requieren estrictamente URLs absolutas con https://
+  const rawHost = req.get('x-forwarded-host') || req.get('host') || 'www.loquelosbikersquieren.com';
+  const isLocal = rawHost.includes('localhost') || rawHost.includes('127.0.0.1');
+  const host = isLocal ? 'www.loquelosbikersquieren.com' : rawHost;
   const baseUrl = `https://${host}`;
   const pathParts = req.path.split('/').filter(Boolean);
 
@@ -409,7 +406,14 @@ async function injectMetadata(htmlTemplate: string, req: Request): Promise<strin
   let structuredDataJson = "";
 
   // 0. Ruta de Carrito Compartido: ?c=ID1:QTY,ID2:QTY (o ?shared_cart=...)
-  const cParam = String(req.query.c || req.query.items || req.query.shared_cart || '').trim();
+  const rawC = req.query.c || req.query.items || req.query.shared_cart;
+  let cParam = '';
+  if (typeof rawC === 'string') {
+    cParam = rawC.trim();
+  } else if (Array.isArray(rawC) && typeof rawC[0] === 'string') {
+    cParam = rawC[0].trim();
+  }
+
   if (cParam) {
     const products = await getAllProducts();
     const parts = cParam.split(',');
@@ -426,7 +430,10 @@ async function injectMetadata(htmlTemplate: string, req: Request): Promise<strin
       if (!rawId) continue;
       const cleanId = rawId.trim();
       const qty = Math.max(1, parseInt(rawQty || '1', 10) || 1);
-      const found = findProductBySlugOrId(products, cleanId);
+      let found = findProductBySlugOrId(products, cleanId);
+      if (!found) {
+        found = await resolveProduct(cleanId);
+      }
       if (found) {
         const rawImage = (
           found.grupo_imagen_portada ||
@@ -623,6 +630,7 @@ async function injectMetadata(htmlTemplate: string, req: Request): Promise<strin
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', true);
   const isProd = process.env.NODE_ENV === 'production';
   const port = Number(process.env.PORT) || 3000;
 
@@ -672,9 +680,13 @@ async function startServer() {
     });
   });
 
-  // Manejo de renderizado para todas las rutas HTML (Deep Linking + Open Graph Server-Side)
-  app.use(async (req: Request, res: Response, next: NextFunction) => {
+  // Handler centralizado de renderizado para todas las rutas HTML (Deep Linking + Open Graph Server-Side)
+  const handleHtmlRequest = async (req: Request, res: Response, next: NextFunction) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    // Excluir endpoints de API y archivos estáticos
+    if (req.path.startsWith('/api/') || (req.path.includes('.') && !req.path.endsWith('.html'))) {
+      return next();
+    }
     const url = req.originalUrl;
     try {
       let template: string;
@@ -688,10 +700,10 @@ async function startServer() {
 
       const finalHtml = await injectMetadata(template, req);
       if (req.method === 'HEAD') {
-        res.status(200).set({ 'Content-Type': 'text/html' }).end();
+        res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end();
         return;
       }
-      res.status(200).set({ 'Content-Type': 'text/html' }).end(finalHtml);
+      res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).send(finalHtml);
     } catch (e) {
       if (!isProd && vite) {
         vite.ssrFixStacktrace(e as Error);
@@ -699,7 +711,12 @@ async function startServer() {
       console.error("Error serving HTML in server.ts:", e);
       next(e);
     }
-  });
+  };
+
+  // Manejo explícito de la ruta raíz para capturar ?c=... en WhatsApp y bots de Meta
+  app.get('/', handleHtmlRequest);
+  // Manejo de todas las demás rutas
+  app.all(/.*/, handleHtmlRequest);
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Biker Store Full-Stack Server running on http://0.0.0.0:${port}`);

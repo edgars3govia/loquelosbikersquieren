@@ -21,6 +21,8 @@ export interface Producto {
   ultimo_pedido_unidades?: number;
   ultimo_pedido_id?: string;
   precio_venta_ref?: number;
+  precio_oferta_usd?: number;
+  descuento_porcentaje?: number;
   precio_mayor?: number;
   precio_gran_mayor?: number;
   ml_precio_sugerido?: number;

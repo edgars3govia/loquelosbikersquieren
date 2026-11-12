@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { getAllProducts, formatDirectImageUrl, DEFAULT_OG_IMAGE } from './productsService';
+import { getAllProducts, getProductBySlug, formatDirectImageUrl, DEFAULT_OG_IMAGE } from './productsService';
 import { findProductBySlugOrId } from '../utils/slugHelper';
 import { formatTitleCase } from '../utils/textUtils';
 
@@ -8,15 +8,24 @@ const DEFAULT_DESCRIPTION = 'Catálogo oficial de repuestos, cascos, chaquetas y
 const STORE_URL = 'https://www.loquelosbikersquieren.com';
 const OFFICIAL_LOGO = 'https://www.loquelosbikersquieren.com/LOGO.png';
 
+/**
+ * Consulta y construye la metadata SSR para el carrito compartido en WhatsApp / Open Graph.
+ * Soporta tanto la llamada con el string 'c' directo como el objeto searchParams de Next.js.
+ */
 export async function getSharedCartMetadata(
-  searchParams?: { [key: string]: string | string[] | undefined }
+  inputParam?: string | { [key: string]: string | string[] | undefined }
 ): Promise<Metadata> {
-  // 1. Extraer el parámetro c o items
-  const rawC = searchParams?.c || searchParams?.items || searchParams?.shared_cart;
-  const cParam = typeof rawC === 'string' ? rawC.trim() : Array.isArray(rawC) ? rawC[0]?.trim() : '';
+  // 1. Extraer el valor del parámetro 'c' (o fallback 'items' / 'shared_cart')
+  let rawC = '';
+  if (typeof inputParam === 'string') {
+    rawC = inputParam.trim();
+  } else if (inputParam && typeof inputParam === 'object') {
+    const queryVal = inputParam.c || inputParam.items || inputParam.shared_cart;
+    rawC = typeof queryVal === 'string' ? queryVal.trim() : (Array.isArray(queryVal) ? queryVal[0]?.trim() || '' : '');
+  }
 
   // Si NO existe el parámetro 'c', retornar los metadatos globales predeterminados
-  if (!cParam) {
+  if (!rawC) {
     return {
       metadataBase: new URL(STORE_URL),
       title: DEFAULT_TITLE,
@@ -50,7 +59,7 @@ export async function getSharedCartMetadata(
     // 2. Consulta rápida de productos del catálogo en memoria/Firestore
     const allProducts = await getAllProducts();
 
-    const parts = cParam.split(',');
+    const parts = rawC.split(',');
     interface ResolvedItem {
       name: string;
       qty: number;
@@ -66,7 +75,24 @@ export async function getSharedCartMetadata(
       const cleanId = rawId.trim();
       const qty = Math.max(1, parseInt(rawQty || '1', 10) || 1);
 
-      const found = findProductBySlugOrId(allProducts, cleanId);
+      // Buscar por ID, SKU, Slug o palabras clave ("psyduck", "mandaloriano", etc.)
+      let found: any = findProductBySlugOrId(allProducts, cleanId);
+      if (!found) {
+        // Fallback directo a Firestore si no estaba en la caché
+        try {
+          const directDetails = await getProductBySlug(cleanId);
+          if (directDetails) {
+            found = directDetails.raw || {
+              id: directDetails.id,
+              nombre: directDetails.nombre,
+              precio_venta_ref: directDetails.precioVentaUSD,
+              imagen_url: directDetails.imagenUrl,
+              imagenes: directDetails.imagenes,
+            };
+          }
+        } catch {}
+      }
+
       if (found) {
         const rawImg = found.variante_imagen_hd ||
                        found.variante_imagen_miniatura ||
@@ -111,13 +137,13 @@ export async function getSharedCartMetadata(
       accessoriesSummary = 'Tus accesorios seleccionados';
     }
 
-    // Especificación exacta solicitada:
+    // Especificación exacta requerida para Meta / WhatsApp:
     // og:title: "🛒 Tu pedido biker está listo | Lo que los bikers quieren"
     // og:description: "Incluye: [Nombres de los accesorios o cantidad]. Toca aquí para confirmar tus datos de encomienda y completar el pago."
     // og:image: Mantén el logo oficial o la imagen del primer producto del kit.
     const ogTitle = '🛒 Tu pedido biker está listo | Lo que los bikers quieren';
     const ogDescription = `Incluye: ${accessoriesSummary}. Toca aquí para confirmar tus datos de encomienda y completar el pago.`;
-    const shareUrl = `${STORE_URL}/?c=${cParam}`;
+    const shareUrl = `${STORE_URL}/?c=${rawC}`;
 
     return {
       metadataBase: new URL(STORE_URL),

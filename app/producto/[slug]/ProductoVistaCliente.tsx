@@ -180,8 +180,8 @@ export default function ProductoVistaCliente({ slug, initialProduct }: ProductoV
         currentCart.push({
           product: prodRaw,
           quantity: quantity,
-          precio_unitario: product.precioVentaUSD,
-          subtotal: Number((product.precioVentaUSD * quantity).toFixed(2)),
+          precio_unitario: priceUSD,
+          subtotal: Number((priceUSD * quantity).toFixed(2)),
         });
       }
 
@@ -300,8 +300,17 @@ export default function ProductoVistaCliente({ slug, initialProduct }: ProductoV
     );
   }
 
-  // Cálculos de precios en USD y Bolívares
-  const priceUSD = product.precioVentaUSD || 0;
+  // Cálculos de precios en USD y Bolívares con soporte para oferta activa
+  const rawProduct = product.raw;
+  const rawOffer = Number(product.precioOfertaUSD ?? rawProduct?.precio_oferta_usd ?? 0);
+  const rawOriginal = Number(product.precioVentaUSD ?? rawProduct?.precio_venta_ref ?? 0);
+  const hasOffer = rawOffer > 0 && rawOffer < rawOriginal;
+  const effectivePriceUSD = hasOffer ? rawOffer : rawOriginal;
+  const discountPercentage = hasOffer
+    ? (Number(product.descuentoPorcentaje ?? rawProduct?.descuento_porcentaje) || Math.round(((rawOriginal - rawOffer) / rawOriginal) * 100))
+    : 0;
+
+  const priceUSD = effectivePriceUSD;
   const priceBS = priceUSD * tasaBCV;
   const inStock = product.stock > 0;
   const galleryImages = product.imagenes && product.imagenes.length > 0
@@ -492,11 +501,21 @@ export default function ProductoVistaCliente({ slug, initialProduct }: ProductoV
             {/* Bloque de Precios (USD + Bolívares con Tasa BCV Oficial) */}
             <div className="p-4 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex flex-col gap-1">
               <div className="flex items-baseline justify-between">
-                <div className="flex items-baseline gap-2">
+                <div className="flex items-center flex-wrap leading-none">
                   <span className="text-3xl sm:text-4xl font-black text-amber-500">
                     ${priceUSD.toFixed(2)}
                   </span>
-                  <span className="text-sm font-bold text-zinc-400">USD</span>
+                  {hasOffer && (
+                    <>
+                      <span className="text-xs sm:text-sm text-neutral-400 line-through font-normal ml-1.5">
+                        ${rawOriginal.toFixed(2)}
+                      </span>
+                      <span className="text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-xs sm:rounded-sm ml-1.5 bg-black text-white shrink-0">
+                        -{discountPercentage}%
+                      </span>
+                    </>
+                  )}
+                  <span className="text-sm font-bold text-zinc-400 ml-2">USD</span>
                 </div>
                 {inStock && (
                   <span className="text-xs text-zinc-400">

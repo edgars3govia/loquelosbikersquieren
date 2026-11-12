@@ -44,6 +44,8 @@ export interface ProductDetails {
   precioVentaUSD: number;
   precioMayorUSD: number;
   precioGranMayorUSD: number;
+  precioOfertaUSD?: number;
+  descuentoPorcentaje?: number;
   precioBS?: number;
   stock: number;
   categoria: string;
@@ -232,13 +234,21 @@ export async function getProductBySlug(param: string): Promise<ProductDetails | 
     const pVenta = Number(targetProduct.precio_venta_ref) || 0;
     const pMayor = Number(targetProduct.precio_mayor) || 0;
     const pGranMayor = Number(targetProduct.precio_gran_mayor) || 0;
+    const rawOffer = Number(targetProduct.precio_oferta_usd) || 0;
+    const baseRef = pVenta || pMayor;
+    const hasOffer = rawOffer > 0 && rawOffer < baseRef;
+    const pOferta = hasOffer ? rawOffer : undefined;
+    const descuento = hasOffer
+      ? (Number(targetProduct.descuento_porcentaje) || Math.round(((baseRef - rawOffer) / baseRef) * 100))
+      : undefined;
     const stock = Number(targetProduct.stock_disponible) || 0;
     const nombre = formatTitleCase(targetProduct.grupo_nombre || targetProduct.nombre || 'Accesorio Biker');
 
     // Construir descripción enriquecida para WhatsApp y SEO
     let descripcion = '';
-    if (pVenta > 0) {
-      descripcion += `Precio: $${pVenta.toFixed(2)} USD. `;
+    const effectivePrice = hasOffer ? rawOffer : pVenta;
+    if (effectivePrice > 0) {
+      descripcion += `Precio: $${effectivePrice.toFixed(2)} USD. `;
     }
     descripcion += 'Envíos a toda Venezuela. Lo Que Los Bikers Quieren - Accesorios.';
     
@@ -252,6 +262,8 @@ export async function getProductBySlug(param: string): Promise<ProductDetails | 
       precioVentaUSD: pVenta,
       precioMayorUSD: pMayor,
       precioGranMayorUSD: pGranMayor,
+      precioOfertaUSD: pOferta,
+      descuentoPorcentaje: descuento,
       stock,
       categoria: formatTitleCase(targetProduct.categoria || 'Accesorios'),
       subcategoria: targetProduct.subcategoria,

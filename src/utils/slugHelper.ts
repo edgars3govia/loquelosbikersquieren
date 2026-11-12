@@ -133,29 +133,24 @@ export function findProductBySlugOrId(products: Producto[], param: string): Prod
   });
   if (byComposite) return byComposite;
 
-  // 6. Coincidencia por prefijo / inclusión si el slug es suficientemente descriptivo
-  if (targetSlug.length >= 6) {
-    const byPartial = products.find(p => {
-      const sName = slugify(p.nombre);
-      const sGroup = slugify(p.grupo_nombre);
-      const sProd = slugify(getProductSlug(p));
-      return (
-        (sName && (sName.startsWith(targetSlug) || targetSlug.startsWith(sName))) ||
-        (sGroup && (sGroup.startsWith(targetSlug) || targetSlug.startsWith(sGroup))) ||
-        (sProd && (sProd.startsWith(targetSlug) || targetSlug.startsWith(sProd)))
-      );
-    });
-    if (byPartial) return byPartial;
-  }
+  // 6. Coincidencia por inclusión / substring si el slug o nombre lo contiene
+  const bySubstring = products.find(p => {
+    const sName = slugify(p.nombre);
+    const sGroup = slugify(p.grupo_nombre);
+    const sProd = slugify(getProductSlug(p));
+    const cleanCandidate = `${sGroup} ${sName} ${sProd}`;
+    return cleanCandidate.includes(targetSlug) || (targetKey.length >= 3 && toAlphaNumericKey(cleanCandidate).includes(targetKey));
+  });
+  if (bySubstring) return bySubstring;
 
-  // 7. Búsqueda tolerante por tokens relevantes (ej. ["acompanante", "pato", "psyduck", "metralleta"] o ["venom", "lengua"])
+  // 7. Búsqueda tolerante por tokens relevantes (ej. ["psyduck"] o ["mandaloriano"] o ["acompanante", "pato"])
   const stopWords = new Set(['de', 'la', 'el', 'los', 'las', 'en', 'para', 'con', 'y', 'a', 'del', 'un', 'una', 'por']);
   const tokens = targetSlug
     .split('-')
     .map(t => t.trim())
-    .filter(t => t.length > 2 && !stopWords.has(t));
+    .filter(t => t.length >= 3 && !stopWords.has(t));
 
-  if (tokens.length >= 2) {
+  if (tokens.length >= 1) {
     let bestMatch: Producto | undefined = undefined;
     let maxMatchCount = 0;
 
@@ -168,14 +163,13 @@ export function findProductBySlugOrId(products: Producto[], param: string): Prod
         }
       }
 
-      if (matchCount >= 2 && matchCount > maxMatchCount) {
+      if (matchCount > maxMatchCount) {
         maxMatchCount = matchCount;
         bestMatch = p;
       }
     }
 
-    // Aceptar coincidencia si reúne la mayoría de tokens significativos
-    if (bestMatch && maxMatchCount >= Math.ceil(tokens.length * 0.5)) {
+    if (bestMatch && maxMatchCount > 0) {
       return bestMatch;
     }
   }

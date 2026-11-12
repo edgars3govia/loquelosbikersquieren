@@ -88,6 +88,7 @@ import { ProductVariantsModal, isValidGroupId } from './ProductVariantsModal';
 import { DEFAULT_PAYMENT_METHODS } from '../constants/defaultPaymentMethods';
 import { fetchTasaOficialBCV, getCachedTasaBCV, DEFAULT_TASA_FALLBACK } from '../lib/tasaService';
 import { STORE_WHATSAPP_PHONE, STORE_WHATSAPP_DISPLAY, STORE_WHATSAPP_VIP_CHANNEL, getWhatsAppDirectUrl } from '../constants/whatsapp';
+import { getProductPriceInfo } from '../utils/priceHelper';
 import { FeaturedHomeSections } from './FeaturedHomeSections';
 
 /**
@@ -1876,9 +1877,12 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         );
         const groupCoverImage = rawGroupCover ? formatDirectImageUrl(rawGroupCover) : '';
 
-        const validPrices = allVariants.map(v => v.precio_venta_ref || v.precio_mayor || 0).filter(pr => pr > 0);
-        const priceMin = validPrices.length > 0 ? Math.min(...validPrices) : (cover.precio_venta_ref || cover.precio_mayor || 0);
-        const priceMax = validPrices.length > 0 ? Math.max(...validPrices) : (cover.precio_venta_ref || cover.precio_mayor || 0);
+        const validPrices = allVariants
+          .map(v => getProductPriceInfo(v).effectivePriceUSD)
+          .filter(pr => pr > 0);
+        const coverPrice = getProductPriceInfo(cover).effectivePriceUSD;
+        const priceMin = validPrices.length > 0 ? Math.min(...validPrices) : coverPrice;
+        const priceMax = validPrices.length > 0 ? Math.max(...validPrices) : coverPrice;
         const totalStock = allVariants.reduce((sum, v) => sum + (Number(v.stock_disponible) || 0), 0);
 
         if (totalStock <= 0) {
@@ -1921,7 +1925,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
         );
         const kitImage = p.grupo_kit_imagen || '';
         const kitNombre = p.grupo_kit_nombre || p.kit_nombre || (p as any).nombre_kit || 'Kit';
-        const price = p.precio_venta_ref || p.precio_mayor || 0;
+        const price = getProductPriceInfo(p).effectivePriceUSD;
         const rawSingleCover = p.imagen_portada || p.variante_imagen_hd || p.link || p.imagen_url || '';
         items.push({
           id: p.id,
@@ -1967,20 +1971,22 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     qty: number = 1,
     sourceElement?: HTMLElement | null
   ) => {
-    let unitPrice = product.precio_venta_ref || product.precio_mayor || 0;
+    const priceInfo = getProductPriceInfo(product);
+    let unitPrice = priceInfo.effectivePriceUSD;
     const isKit = Boolean(product.es_kit || product.variante_nombre?.toLowerCase() === 'kit');
 
     let displayProduct = product;
     if (isKit) {
       // Si es un kit, asegurarse de que el precio unitario sea el precio total del Kit
-      let kitPrice = product.precio_venta_ref || product.grupo_kit_precio || 0;
+      let kitPrice = priceInfo.effectivePriceUSD || product.grupo_kit_precio || 0;
       let kitComponents: string[] = product.kit_componentes_ids || [];
 
       if (isValidGroupId(product.grupo_id)) {
         const groupItem = catalogItems.find(it => it.groupId === product.grupo_id || it.id === product.grupo_id);
         if (groupItem) {
-          if (!kitPrice || kitPrice <= 0 || (groupItem.kitVariant && kitPrice < (groupItem.kitVariant.precio_venta_ref || 0))) {
-            kitPrice = groupItem.kitVariant?.precio_venta_ref || groupItem.priceMax || kitPrice;
+          const kitVarPrice = groupItem.kitVariant ? getProductPriceInfo(groupItem.kitVariant).effectivePriceUSD : 0;
+          if (!kitPrice || kitPrice <= 0 || (kitVarPrice > 0 && kitPrice < kitVarPrice)) {
+            kitPrice = kitVarPrice || groupItem.priceMax || kitPrice;
           }
           if (kitComponents.length === 0 && groupItem.individualVariants.length > 0) {
             kitComponents = groupItem.individualVariants.map(v => v.id);
@@ -2069,7 +2075,7 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
     setCart((prevCart) => {
       let updatedCart = [...prevCart];
       for (const prod of comboProducts) {
-        const unitPrice = prod.precio_venta_ref || prod.precio_mayor || 0;
+        const unitPrice = getProductPriceInfo(prod).effectivePriceUSD;
         if (unitPrice <= 0) continue;
 
         const existingIdx = updatedCart.findIndex((it) => it.product.id === prod.id);
@@ -3522,7 +3528,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
               const itemImages = getItemImages(item, activeVariant, !isSelectedByUser && Boolean(item.coverImage));
 
               const currentImageIndex = cardImageIndexMap[item.id] || 0;
-              const priceUSD = activeVariant.precio_venta_ref || activeVariant.precio_mayor || 0;
+              const activePriceInfo = getProductPriceInfo(activeVariant);
+              const priceUSD = activePriceInfo.effectivePriceUSD;
               const priceBS = priceUSD * tasaBCV;
               const currentStock = activeVariant.stock_disponible ?? item.totalStock ?? 0;
               const isVariantInStock = (activeVariant.stock_disponible || 0) > 0;
@@ -3647,25 +3654,62 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
 
                     {/* Contenedor inferior fijado con mt-auto: Precios y Botón CTA */}
                     <div className="mt-auto pt-2 space-y-1.5">
-                      {/* Price section: Naranja Refinado #FF5200 en semibold y Bolívares en gris medio normal */}
+                      {/* Price section: Bloque en una sola fila horizontal estilo Shein / AliExpress */}
                       <div className="pt-1 border-t border-gray-100 space-y-0.5 font-mono">
-                        <div className="flex items-baseline gap-1 flex-wrap">
+                        <div className="flex items-center flex-wrap leading-none">
                           {item.hasKit && !isSelectedByUser ? (
                             <>
-                              <span className="text-[9px] font-normal text-gray-500">Desde</span>
-                              <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} </span>
-                              <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
+                              <span className="text-[10px] sm:text-xs font-normal text-neutral-500 mr-1">Desde</span>
+                              <span className="text-sm sm:text-base font-bold text-[#FF5200] tracking-tight">
+                                ${item.priceMin.toFixed(2)}
+                              </span>
+                              {activePriceInfo.hasOffer && (
+                                <>
+                                  <span className="text-xs sm:text-sm text-neutral-400 line-through font-normal ml-1.5">
+                                    ${activePriceInfo.originalPriceUSD.toFixed(2)}
+                                  </span>
+                                  <span className="text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-xs sm:rounded-sm ml-1.5 bg-black text-white shrink-0">
+                                    -{activePriceInfo.discountPercentage}%
+                                  </span>
+                                </>
+                              )}
                             </>
                           ) : item.isGroup && item.priceMin !== item.priceMax && !isSelectedByUser ? (
                             <>
-                              <span className="text-[9px] font-normal text-gray-500">Desde</span>
-                              <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${item.priceMin.toFixed(2)} - ${item.priceMax.toFixed(2)} </span>
-                              <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
+                              <span className="text-[10px] sm:text-xs font-normal text-neutral-500 mr-1">Desde</span>
+                              <span className="text-sm sm:text-base font-bold text-[#FF5200] tracking-tight">
+                                ${item.priceMin.toFixed(2)}
+                              </span>
+                              {activePriceInfo.hasOffer ? (
+                                <>
+                                  <span className="text-xs sm:text-sm text-neutral-400 line-through font-normal ml-1.5">
+                                    ${activePriceInfo.originalPriceUSD.toFixed(2)}
+                                  </span>
+                                  <span className="text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-xs sm:rounded-sm ml-1.5 bg-black text-white shrink-0">
+                                    -{activePriceInfo.discountPercentage}%
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-xs sm:text-sm font-normal text-neutral-500 ml-1">
+                                  - ${item.priceMax.toFixed(2)}
+                                </span>
+                              )}
                             </>
                           ) : (
                             <>
-                              <span className="text-sm sm:text-base font-semibold text-[#FF5200] tracking-tight"> ${priceUSD.toFixed(2)} </span>
-                              <span className="text-[10px] font-medium text-[#FF5200]">USD</span>
+                              <span className="text-sm sm:text-base font-bold text-[#FF5200] tracking-tight">
+                                ${priceUSD.toFixed(2)}
+                              </span>
+                              {activePriceInfo.hasOffer && (
+                                <>
+                                  <span className="text-xs sm:text-sm text-neutral-400 line-through font-normal ml-1.5">
+                                    ${activePriceInfo.originalPriceUSD.toFixed(2)}
+                                  </span>
+                                  <span className="text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-xs sm:rounded-sm ml-1.5 bg-black text-white shrink-0">
+                                    -{activePriceInfo.discountPercentage}%
+                                  </span>
+                                </>
+                              )}
                             </>
                           )}
                         </div>
@@ -5705,7 +5749,8 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
           activeQV,
           !quickViewUserSelectedVariant && Boolean(parentCatalogItem?.coverImage)
         );
-        const qvPriceUSD = activeQV.precio_venta_ref || activeQV.precio_mayor || 0;
+        const activeQVPriceInfo = getProductPriceInfo(activeQV);
+        const qvPriceUSD = activeQVPriceInfo.effectivePriceUSD;
         const qvPriceBS = qvPriceUSD * tasaBCV;
         const qvInStock = (activeQV.stock_disponible || 0) > 0;
 
@@ -5834,12 +5879,27 @@ export const BikerStore: React.FC<BikerStoreProps> = ({
                       {formatTitleCase(activeQV.grupo_nombre || activeQV.nombre)}
                     </h3>
 
-                    {/* Precios: fuente limpia mono en Naranja #FF5200 y Tasa BCV agrupados */}
+                    {/* Precios: Bloque en una sola fila horizontal estilo Shein / AliExpress */}
                     <div className="pt-0 font-mono">
-                      <div className="text-xl sm:text-2xl md:text-3xl font-semibold text-[#FF5200] tracking-tight leading-none">
-                        ${qvPriceUSD.toFixed(2)} USD
+                      <div className="flex items-center flex-wrap leading-none">
+                        {qvVariants.length > 1 && !quickViewUserSelectedVariant && (
+                          <span className="text-xs sm:text-sm text-neutral-500 font-normal mr-1.5">Desde</span>
+                        )}
+                        <span className="text-xl sm:text-2xl md:text-3xl font-bold text-[#FF5200] tracking-tight">
+                          ${qvPriceUSD.toFixed(2)}
+                        </span>
+                        {activeQVPriceInfo.hasOffer && (
+                          <>
+                            <span className="text-xs sm:text-sm text-neutral-400 line-through font-normal ml-1.5">
+                              ${activeQVPriceInfo.originalPriceUSD.toFixed(2)}
+                            </span>
+                            <span className="text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-xs sm:rounded-sm ml-1.5 bg-black text-white shrink-0">
+                              -{activeQVPriceInfo.discountPercentage}%
+                            </span>
+                          </>
+                        )}
                       </div>
-                      <p className="text-xs sm:text-sm text-gray-500 font-normal mt-0.5 leading-none">
+                      <p className="text-xs sm:text-sm text-gray-500 font-normal mt-1.5 leading-none">
                         ≈ Bs. {formatVES(qvPriceBS)} <span className="text-gray-400 font-normal text-[11px] sm:text-xs">(Tasa BCV: {formatVES(tasaBCV)})</span>
                       </p>
                     </div>
